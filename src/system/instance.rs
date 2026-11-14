@@ -83,18 +83,23 @@ fn socket_dir() -> io::Result<std::path::PathBuf> {
 /// this user that nobody else can enter. One that is not (another user made it first) is not used.
 #[cfg(target_os = "linux")]
 fn socket_dir() -> io::Result<std::path::PathBuf> {
-    use std::os::unix::fs::MetadataExt;
-    // The owner of /proc/self is this process's user.
-    let uid = std::fs::metadata("/proc/self")?.uid();
+    // SAFETY: geteuid has no arguments and cannot fail.
+    let uid = unsafe { libc::geteuid() };
     let dirs = socket_dir_candidates(
         std::env::var_os("XDG_RUNTIME_DIR"),
         &std::env::temp_dir(),
         uid,
     );
+    first_private_dir(&dirs, uid)
+}
+
+/// The first of `dirs` that `private_dir` accepts, else the last error.
+#[cfg(target_os = "linux")]
+fn first_private_dir(dirs: &[std::path::PathBuf], uid: u32) -> io::Result<std::path::PathBuf> {
     let mut last = io::Error::other("no folder for the socket");
     for dir in dirs {
-        match private_dir(&dir, uid) {
-            Ok(()) => return Ok(dir),
+        match private_dir(dir, uid) {
+            Ok(()) => return Ok(dir.clone()),
             Err(e) => last = e,
         }
     }
@@ -114,21 +119,32 @@ fn socket_dir_candidates(
     {
         dirs.push(d.join("takeshot"));
     }
+    // A relative TMPDIR would be a different folder for every working directory.
+    let temp = if temp.is_absolute() {
+        temp
+    } else {
+        std::path::Path::new("/tmp")
+    };
     dirs.push(temp.join(format!("takeshot-{uid}")));
     dirs
 }
 
 /// Makes the folder (mode 0700) when it is not there and checks it is `uid`'s and closed to others.
+/// The errors say no path (the log is attached to bug reports) and are never `PermissionDenied`,
+/// which `in_use` reads as "address in use" and `claim` would wait for.
 #[cfg(target_os = "linux")]
 fn private_dir(path: &std::path::Path, uid: u32) -> io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
-    match std::fs::DirBuilder::new().mode(0o700).create(path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-        Err(e) => return Err(e),
-    }
-    // The message has no path: the log is attached to bug reports.
-    if is_private(&std::fs::symlink_metadata(path)?, uid) {
+    let made = match std::fs::DirBuilder::new().mode(0o700).create(path) {
+        Err(e) if e.kind() != io::ErrorKind::AlreadyExists => Err(e),
+        _ => Ok(()),
+    };
+    let meta = made
+        .and_then(|()| std::fs::symlink_metadata(path))
+        .map_err(|e| {
+            io::Error::other(format!("the socket folder cannot be used ({})", e.kind()))
+        })?;
+    if is_private(&meta, uid) {
         Ok(())
     } else {
         Err(io::Error::other(
@@ -144,16 +160,17 @@ fn is_private(meta: &std::fs::Metadata, uid: u32) -> bool {
     meta.is_dir() && meta.uid() == uid && meta.mode() & 0o077 == 0
 }
 
-/// Where the capture lock goes: next to the socket where that folder is the user's own, else the
-/// temp folder, as before.
-fn lock_dir() -> std::path::PathBuf {
+/// Where the capture lock goes: next to the socket on Linux, and `None` when that folder cannot be
+/// had, since a lock in the shared temp folder could be held by another user (every PrtSc would
+/// be ignored). Elsewhere the temp folder is already the user's own.
+fn lock_dir() -> Option<std::path::PathBuf> {
     #[cfg(target_os = "linux")]
     {
-        socket_dir().unwrap_or_else(|_| std::env::temp_dir())
+        socket_dir().ok()
     }
     #[cfg(not(target_os = "linux"))]
     {
-        std::env::temp_dir()
+        Some(std::env::temp_dir())
     }
 }
 
@@ -227,7 +244,11 @@ pub struct CaptureSlot(#[allow(dead_code)] Option<std::fs::File>);
 /// lock goes with the process, so a crashed capture never blocks the next. Where the lock file
 /// cannot be used, captures run unguarded.
 pub fn capture_slot(name: &str) -> Option<CaptureSlot> {
-    let path = lock_dir().join(format!("{name}.capture.lock"));
+    let Some(dir) = lock_dir() else {
+        log::line(format_args!("captures not guarded: no private folder"));
+        return Some(CaptureSlot(None));
+    };
+    let path = dir.join(format!("{name}.capture.lock"));
     let file = match std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -722,10 +743,14 @@ mod tests {
         assert!(matches!(claim(&name), Claim::Primary(_)));
     }
 
+    /// The owner of a folder this process just made, which is not how the code under test asks.
     #[cfg(target_os = "linux")]
     fn our_uid() -> u32 {
         use std::os::unix::fs::MetadataExt;
-        std::fs::metadata("/proc/self").unwrap().uid()
+        let d = scratch("uid");
+        let uid = std::fs::metadata(&d).unwrap().uid();
+        std::fs::remove_dir_all(&d).unwrap();
+        uid
     }
 
     #[cfg(target_os = "linux")]
@@ -755,6 +780,51 @@ mod tests {
                 [PathBuf::from("/tmp/takeshot-7")]
             );
         }
+        // And a relative temp folder gives way to /tmp.
+        assert_eq!(
+            socket_dir_candidates(None, Path::new("tmp"), 7),
+            [PathBuf::from("/tmp/takeshot-7")]
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_link_where_the_folder_should_be_is_refused() {
+        use std::os::unix::fs::DirBuilderExt;
+        let base = scratch("link");
+        let real = base.join("real");
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&real)
+            .unwrap();
+        let link = base.join("takeshot");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        // The folder behind the link is ours and closed; the link is the other user's to move.
+        assert!(private_dir(&link, our_uid()).is_err());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_first_candidate_that_is_private_is_used_and_none_is_an_error_that_is_not_busy() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = scratch("first");
+        let open = base.join("open");
+        std::fs::create_dir(&open).unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let fresh = base.join("fresh");
+        let uid = our_uid();
+        assert_eq!(
+            first_private_dir(&[open.clone(), fresh.clone()], uid).unwrap(),
+            fresh,
+            "the open one is skipped, the next is made and used"
+        );
+        let err = first_private_dir(std::slice::from_ref(&open), uid).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::Other);
+        assert!(!in_use(&err), "a refused folder must not make `claim` wait");
+        let err = first_private_dir(&[], uid).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::Other);
+        std::fs::remove_dir_all(&base).unwrap();
     }
 
     #[cfg(target_os = "linux")]

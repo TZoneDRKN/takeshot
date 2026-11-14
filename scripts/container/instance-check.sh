@@ -47,13 +47,16 @@ sleep 2
 as bob USER=alice timeout 40 takeshot --quit > /tmp/bob-quit.log 2>&1 && code=0 || code=$?
 sleep 2
 alive || fail "bob closed alice's resident (his --quit exited $code)"
+[ "$code" = 0 ] || { cat /tmp/bob-quit.log; fail "bob's --quit exited with $code: it should find nothing to quit"; }
 echo "ok: bob's --quit with alice's name did not reach her resident"
 
 dir=/run/user/$alice/takeshot
 [ -d "$dir" ] || fail "no socket folder at $dir"
 [ "$(stat -c '%a %U' "$dir")" = "700 alice" ] || fail "$dir is '$(stat -c '%a %U' "$dir")', not '700 alice'"
 ls "$dir" | grep -q '\.sock$' || fail "no socket in $dir"
-echo "ok: the socket is in $dir, 0700 and alice's"
+# The folder refuses bob himself, not only his own environment: he cannot enter it.
+! as bob test -x "$dir" || fail "bob can enter $dir"
+echo "ok: the socket is in $dir, 0700 and alice's; bob cannot enter it"
 
 # alice's own --quit still works. A process that exits does not unlink its socket file, so the next
 # resident finds a dead one in the folder and takes its place.
