@@ -5,7 +5,7 @@ use crate::system::instance::{Listener, Page};
 use crate::system::log;
 use crate::system::settings::{OnClose, Settings, TrayClick};
 use crate::system::tray::{Tray, TrayEvent};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 
 /// Something the resident must react to on the UI thread.
 #[derive(Clone, PartialEq, Debug)]
@@ -50,18 +50,24 @@ pub enum XAction {
     Quit,
 }
 
-/// winit uses Wayland when the session has one.
+/// Whether the window of this process is a Wayland one: the session as winit saw it when it
+/// chose its backend. The first call fixes the answer, because the Wayland connection takes
+/// `WAYLAND_SOCKET` out of the environment (`wayland-client`'s `connect_to_env`), so `run` asks
+/// before any window exists. `env::var`, not `var_os`, as winit: a value that is not UTF-8 is unset.
 pub fn on_wayland() -> bool {
-    cfg!(target_os = "linux")
-        && wayland_session(
-            std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
-            std::env::var("WAYLAND_SOCKET").ok().as_deref(),
-        )
+    static SESSION: OnceLock<bool> = OnceLock::new();
+    *SESSION.get_or_init(|| {
+        cfg!(target_os = "linux")
+            && wayland_session(
+                std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
+                std::env::var("WAYLAND_SOCKET").ok().as_deref(),
+            )
+    })
 }
 
 /// The rule winit 0.30 applies before it opens a window (`platform_impl/linux/mod.rs`): a
-/// `WAYLAND_DISPLAY` or `WAYLAND_SOCKET` that is set and not empty means Wayland, even when
-/// `DISPLAY` is there too; an empty one counts as unset.
+/// `WAYLAND_DISPLAY` or `WAYLAND_SOCKET` that is set and not empty means Wayland, an empty one
+/// counts as unset. `DISPLAY` is not looked at: a Wayland variable wins over it, as in winit.
 fn wayland_session(display: Option<&str>, socket: Option<&str>) -> bool {
     [display, socket]
         .into_iter()

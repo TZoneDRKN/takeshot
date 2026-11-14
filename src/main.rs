@@ -849,6 +849,8 @@ fn main() -> eframe::Result {
 }
 
 fn run() -> eframe::Result {
+    // Before any window: winit's Wayland connection takes `WAYLAND_SOCKET` out of the environment.
+    system::resident::on_wayland();
     ui::chrome::init(false);
     let args = parse_args();
     // Verbs, not windows: nothing to start, no log of its own.
@@ -1492,6 +1494,22 @@ fn demo_annotations() -> Vec<model::Ann> {
 mod tests {
     use super::*;
     use ui::tokens::{ThemeId, UiMode};
+
+    #[test]
+    fn run_reads_the_session_before_winit_connects() {
+        // winit's Wayland connection takes WAYLAND_SOCKET out of the environment, so the answer of
+        // `on_wayland` is fixed by the first call: it comes before any window can be made.
+        let src = include_str!("main.rs");
+        let run = src.find("fn run() -> eframe::Result").expect("run");
+        let at = |needle: &str| {
+            run + src[run..]
+                .find(needle)
+                .unwrap_or_else(|| panic!("`{needle}` is not in run()"))
+        };
+        let asked = at("system::resident::on_wayland();");
+        assert!(asked < at("run_resident_windows(&args"));
+        assert!(asked < at("eframe::run_native("));
+    }
 
     fn shared(theme: ThemeId, mode: UiMode) -> Shared {
         Shared {
