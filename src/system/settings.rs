@@ -344,12 +344,21 @@ impl Settings {
             .unwrap_or_default()
     }
 
-    /// The settings in the file at `p` (the defaults without one), remembered in `seen`.
+    /// The settings in the file at `p` (the defaults without one), remembered in `seen`. A file
+    /// that is there but cannot be read (a typo from a hand edit, an empty file after a crash) is
+    /// copied to `settings.json.bad` first: the next save writes the defaults over it.
     pub fn load_at(p: &std::path::Path, seen: &mut Seen) -> Self {
-        let s: Self = std::fs::read_to_string(p)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let s: Self = match std::fs::read_to_string(p) {
+            Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| {
+                if std::fs::copy(p, p.with_extension("json.bad")).is_ok() {
+                    crate::system::log::line(format_args!(
+                        "settings file unreadable: kept aside as .bad, defaults used"
+                    ));
+                }
+                Self::default()
+            }),
+            Err(_) => Self::default(),
+        };
         *seen = serde_json::to_value(&s).ok();
         s
     }
@@ -379,8 +388,10 @@ impl Settings {
             return;
         };
         let tmp = p.with_extension(format!("json.{}.tmp", std::process::id()));
-        if std::fs::write(&tmp, text).is_ok() && std::fs::rename(&tmp, p).is_ok() {
+        if write_durably(&tmp, text.as_bytes()).is_ok() && std::fs::rename(&tmp, p).is_ok() {
             *seen = Some(mine);
+        } else {
+            let _ = std::fs::remove_file(&tmp);
         }
     }
 
@@ -390,6 +401,16 @@ impl Settings {
         let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
         self.save_at(&p, &mut seen);
     }
+}
+
+/// Writes `bytes` to `p` and waits until they are on the disk: renamed over the settings file
+/// before that, they could be lost to a power cut and leave it empty. Saves happen on a change
+/// (never while a button is held), so the wait is not felt.
+fn write_durably(p: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(p)?;
+    f.write_all(bytes)?;
+    f.sync_all()
 }
 
 /// Writes into `disk` what `mine` changed from `base`, field by field.
@@ -457,6 +478,51 @@ mod tests {
             got.draw.width, 9.0,
             "a later save keeps an earlier one's change"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_is_kept_aside_before_the_defaults_overwrite_it() {
+        let dir = std::env::temp_dir().join(format!("takeshot-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("settings.json");
+        let (typo, empty) = ("{\"lang\": \"pt\",, }", "");
+        for broken in [typo, empty] {
+            std::fs::write(&p, broken).unwrap();
+            let mut seen = None;
+            let s = Settings::load_at(&p, &mut seen);
+            assert_eq!(s.lang, Settings::default().lang, "the defaults are used");
+            s.save_at(&p, &mut seen);
+            let kept = std::fs::read_to_string(p.with_extension("json.bad")).unwrap();
+            assert_eq!(kept, broken, "what the user had is still there");
+            assert!(
+                serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&p).unwrap())
+                    .is_ok()
+            );
+        }
+        // A file that reads leaves nothing aside.
+        let _ = std::fs::remove_file(p.with_extension("json.bad"));
+        let mut seen = None;
+        Settings::load_at(&p, &mut seen);
+        assert!(!p.with_extension("json.bad").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_save_that_fails_leaves_no_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("takeshot-tmp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // A folder where the file should be: the rename cannot replace it.
+        let p = dir.join("settings.json");
+        std::fs::create_dir_all(&p).unwrap();
+        Settings::default().save_at(&p, &mut None);
+        let left: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".tmp"))
+            .collect();
+        assert!(left.is_empty(), "left behind: {left:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
