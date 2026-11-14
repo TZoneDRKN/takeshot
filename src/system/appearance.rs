@@ -45,7 +45,7 @@ pub fn system_theme(ctx: &egui::Context) -> Option<Theme> {
 /// The desktop portal's Settings (org.freedesktop.portal.Settings), over zbus.
 #[cfg(target_os = "linux")]
 mod portal {
-    use super::{Theme, remember, scheme_theme};
+    use super::remember;
     use std::sync::{Mutex, Once};
     use zbus::blocking::{Connection, Proxy};
     use zbus::zvariant::{OwnedValue, Value};
@@ -79,16 +79,8 @@ mod portal {
         }
     }
 
-    /// A portal value as the theme it names. `ReadOne` and `SettingChanged` carry the number in one
-    /// variant; the older `Read` wraps it in a second.
-    pub fn theme_of(value: &Value) -> Option<Theme> {
-        match value {
-            Value::Value(inner) => theme_of(inner),
-            Value::U32(n) => scheme_theme(*n),
-            _ => None,
-        }
-    }
-
+    /// The `color-scheme` number in a portal value. `ReadOne` and `SettingChanged` carry it in one
+    /// variant; the older `Read` wraps it in a second. A value of another kind says nothing (0).
     fn scheme_of(value: &Value) -> u32 {
         match value {
             Value::Value(inner) => scheme_of(inner),
@@ -144,17 +136,17 @@ mod portal {
 
     #[cfg(test)]
     mod tests {
+        use super::super::{Theme, scheme_theme};
         use super::*;
 
         #[test]
         fn a_portal_value_is_read_through_one_variant_or_two() {
-            let one = Value::U32(2);
-            assert_eq!(theme_of(&one), Some(Theme::Light));
-            let two = Value::Value(Box::new(Value::U32(1)));
-            assert_eq!(theme_of(&two), Some(Theme::Dark));
+            assert_eq!(scheme_of(&Value::U32(2)), 2);
+            assert_eq!(scheme_of(&Value::Value(Box::new(Value::U32(1)))), 1);
             // No preference, and a value of another kind: nothing to say.
-            assert_eq!(theme_of(&Value::U32(0)), None);
-            assert_eq!(theme_of(&Value::Str("dark".into())), None);
+            assert_eq!(scheme_of(&Value::U32(0)), 0);
+            assert_eq!(scheme_of(&Value::Str("dark".into())), 0);
+            assert_eq!(scheme_theme(scheme_of(&Value::U32(2))), Some(Theme::Light));
         }
     }
 }
