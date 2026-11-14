@@ -5,7 +5,7 @@ use crate::system::instance::{Listener, Page};
 use crate::system::log;
 use crate::system::settings::{OnClose, Settings, TrayClick};
 use crate::system::tray::{Tray, TrayEvent};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 
 /// Something the resident must react to on the UI thread.
 #[derive(Clone, PartialEq, Debug)]
@@ -50,9 +50,29 @@ pub enum XAction {
     Quit,
 }
 
-/// winit uses Wayland when the session has one.
+/// Whether the window of this process is a Wayland one: the session as winit saw it when it
+/// chose its backend. The first call fixes the answer, because the Wayland connection takes
+/// `WAYLAND_SOCKET` out of the environment (`wayland-client`'s `connect_to_env`), so `run` asks
+/// before any window exists. `env::var`, not `var_os`, as winit: a value that is not UTF-8 is unset.
 pub fn on_wayland() -> bool {
-    cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()
+    static SESSION: OnceLock<bool> = OnceLock::new();
+    *SESSION.get_or_init(|| {
+        cfg!(target_os = "linux")
+            && wayland_session(
+                std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
+                std::env::var("WAYLAND_SOCKET").ok().as_deref(),
+            )
+    })
+}
+
+/// The rule winit 0.30 applies before it opens a window (`platform_impl/linux/mod.rs`): a
+/// `WAYLAND_DISPLAY` or `WAYLAND_SOCKET` that is set and not empty means Wayland, an empty one
+/// counts as unset. `DISPLAY` is not looked at: a Wayland variable wins over it, as in winit.
+fn wayland_session(display: Option<&str>, socket: Option<&str>) -> bool {
+    [display, socket]
+        .into_iter()
+        .flatten()
+        .any(|v| !v.is_empty())
 }
 
 /// What the close prompt stores: the answer (Hide or Quit), only with "Remember my choice"
@@ -256,6 +276,20 @@ pub fn wants_hook(settings: &Settings) -> bool {
 mod tests {
     use super::*;
     use crate::system::settings::{OnClose, TrayClick};
+
+    #[test]
+    fn a_wayland_session_is_what_winit_takes_for_one() {
+        assert!(wayland_session(Some("wayland-0"), None));
+        assert!(wayland_session(None, Some("7")));
+        assert!(wayland_session(Some("wayland-0"), Some("")));
+        // An empty variable is unset for winit, which then opens the X11 window.
+        assert!(!wayland_session(Some(""), None));
+        assert!(!wayland_session(None, Some("")));
+        assert!(!wayland_session(Some(""), Some("")));
+        assert!(!wayland_session(None, None));
+        // `WAYLAND_DISPLAY` empty does not hide a `WAYLAND_SOCKET` that is there.
+        assert!(wayland_session(Some(""), Some("7")));
+    }
 
     #[test]
     fn the_prtsc_hook_needs_the_shortcuts_on() {
