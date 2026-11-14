@@ -442,20 +442,42 @@ impl Shell {
     /// root (Linux) `App::logic` does, through `read_close_request`, because `ui` does not run
     /// while the window is minimized and a close from the taskbar would be lost: the window would
     /// just go, whatever the setting says.
-    fn handle_close_request(&mut self, ctx: &egui::Context, tray_shown: bool, shared: &Shared) {
-        let requested = ctx.input_for(self.main_viewport(), |i| i.viewport().close_requested());
-        if requested && self.intercepts_close() {
-            ctx.send_viewport_cmd(Cmd::CancelClose);
-            match on_x(shared.settings.on_close) {
-                XAction::Ask => self.close_prompt = Some(true),
-                XAction::Hide => self.hide(ctx, tray_shown),
-                XAction::Quit => self.quit(ctx),
+    ///
+    /// `tray_shown` is asked only when the setting hides the window: on Linux it is a round trip to
+    /// the session bus, and this runs on every frame.
+    fn handle_close_request(
+        &mut self,
+        ctx: &egui::Context,
+        tray_shown: impl FnOnce() -> bool,
+        shared: &Shared,
+    ) {
+        let main = self.main_viewport();
+        if !ctx.input_for(main, |i| i.viewport().close_requested()) || !self.intercepts_close() {
+            return;
+        }
+        ctx.send_viewport_cmd(Cmd::CancelClose);
+        match on_x(shared.settings.on_close) {
+            XAction::Ask => {
+                self.close_prompt = Some(true);
+                // The prompt is drawn by `ui`, which does not run while the window is minimized:
+                // bring it back, or the click on the taskbar's X seems to do nothing.
+                if ctx.input_for(main, |i| i.viewport().minimized) == Some(true) {
+                    ctx.send_viewport_cmd_to(main, Cmd::Minimized(false));
+                    ctx.send_viewport_cmd_to(main, Cmd::Focus);
+                }
             }
+            XAction::Hide => self.hide(ctx, tray_shown()),
+            XAction::Quit => self.quit(ctx),
         }
     }
 
     /// `handle_close_request` for the main window that is the root (Linux), from `App::logic`.
-    pub fn read_close_request(&mut self, ctx: &egui::Context, tray_shown: bool, shared: &Shared) {
+    pub fn read_close_request(
+        &mut self,
+        ctx: &egui::Context,
+        tray_shown: impl FnOnce() -> bool,
+        shared: &Shared,
+    ) {
         if !self.hosted {
             self.handle_close_request(ctx, tray_shown, shared);
         }
@@ -544,7 +566,7 @@ impl Shell {
     ) {
         let ctx = ui.ctx().clone();
         if self.hosted {
-            self.handle_close_request(&ctx, resident.tray_shown(), shared);
+            self.handle_close_request(&ctx, || resident.tray_shown(), shared);
         }
         let t = shared.tokens(crate::system::appearance::system_theme(&ctx));
         crate::views::begin_frame(&ctx, &t);
@@ -885,6 +907,120 @@ mod tests {
             !shell.hides_main(&ctx, &shared),
             "it is already out of the picture"
         );
+    }
+
+    /// What `read_close_request` sends in one logic-only pass of the root (a minimized window is
+    /// never drawn), in which the window was asked to close.
+    fn logic_close(
+        shell: &mut Shell,
+        on_close: crate::system::settings::OnClose,
+        minimized: bool,
+        tray: bool,
+    ) -> Vec<Cmd> {
+        let ctx = egui::Context::default();
+        let mut shared = Shared::for_tests();
+        shared.settings.on_close = on_close;
+        let mut raw = egui::RawInput {
+            viewport_id: ViewportId::ROOT,
+            ..Default::default()
+        };
+        raw.viewports.insert(
+            ViewportId::ROOT,
+            egui::ViewportInfo {
+                minimized: Some(minimized),
+                events: vec![egui::ViewportEvent::Close],
+                ..Default::default()
+            },
+        );
+        let out = ctx.run_logic(&raw, |c| shell.read_close_request(c, || tray, &shared));
+        out.viewport_commands
+            .get(&ViewportId::ROOT)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn the_x_on_a_minimized_main_window_follows_the_setting() {
+        use crate::system::settings::OnClose;
+        // Hide with no panel for the tray: the window only minimizes, and the close is not let through.
+        let mut shell = Shell::new(false, true);
+        let sent = logic_close(&mut shell, OnClose::Minimize, true, false);
+        assert!(sent.contains(&Cmd::CancelClose), "{sent:?}");
+        assert!(sent.contains(&Cmd::Minimized(true)), "{sent:?}");
+        assert!(!sent.contains(&Cmd::Close), "{sent:?}");
+        // Hide with a tray: the window closes for it, and that close is the resident's own.
+        let mut shell = Shell::new(false, true);
+        let sent = logic_close(&mut shell, OnClose::Minimize, true, true);
+        assert!(sent.contains(&Cmd::CancelClose), "{sent:?}");
+        assert!(sent.contains(&Cmd::Close), "{sent:?}");
+        assert!(
+            !shell.intercepts_close(),
+            "the next close is not the user's"
+        );
+        // Quit.
+        let mut shell = Shell::new(false, true);
+        let sent = logic_close(&mut shell, OnClose::Quit, true, false);
+        assert!(sent.contains(&Cmd::CancelClose), "{sent:?}");
+        assert!(shell.quit_asked);
+    }
+
+    #[test]
+    fn the_x_asks_and_brings_a_minimized_window_back_for_the_prompt() {
+        use crate::system::settings::OnClose;
+        let mut shell = Shell::new(false, true);
+        let sent = logic_close(&mut shell, OnClose::Ask, true, false);
+        assert_eq!(shell.close_prompt, Some(true));
+        assert!(sent.contains(&Cmd::CancelClose), "{sent:?}");
+        assert!(sent.contains(&Cmd::Minimized(false)), "{sent:?}");
+        assert!(sent.contains(&Cmd::Focus), "{sent:?}");
+        // A window on screen shows the prompt itself.
+        let mut shell = Shell::new(false, true);
+        let sent = logic_close(&mut shell, OnClose::Ask, false, false);
+        assert_eq!(shell.close_prompt, Some(true));
+        assert!(!sent.contains(&Cmd::Minimized(false)), "{sent:?}");
+    }
+
+    #[test]
+    fn the_tray_is_asked_only_when_the_setting_hides_the_window() {
+        use crate::system::settings::OnClose;
+        for on_close in [OnClose::Ask, OnClose::Quit] {
+            let mut shell = Shell::new(false, true);
+            let ctx = egui::Context::default();
+            let mut shared = Shared::for_tests();
+            shared.settings.on_close = on_close;
+            let mut raw = egui::RawInput::default();
+            raw.viewports.insert(
+                ViewportId::ROOT,
+                egui::ViewportInfo {
+                    events: vec![egui::ViewportEvent::Close],
+                    ..Default::default()
+                },
+            );
+            let _ = ctx.run_logic(&raw, |c| {
+                shell.read_close_request(c, || panic!("the bus is asked on every frame"), &shared);
+            });
+        }
+    }
+
+    #[test]
+    fn a_close_the_resident_asked_for_is_not_the_users_x() {
+        use crate::system::settings::OnClose;
+        let mut shell = Shell::new(false, true);
+        shell.leaving = true;
+        let sent = logic_close(&mut shell, OnClose::Quit, true, false);
+        assert!(!sent.contains(&Cmd::CancelClose), "{sent:?}");
+        assert!(!shell.quit_asked);
+    }
+
+    #[test]
+    fn a_hosted_main_window_leaves_the_x_to_ui() {
+        use crate::system::settings::OnClose;
+        // The child viewport of the invisible host is drawn by the root's `ui`; `logic` has no
+        // say, and its stale input for that viewport must not be read.
+        let mut shell = Shell::new(true, true);
+        let sent = logic_close(&mut shell, OnClose::Quit, false, false);
+        assert!(sent.is_empty(), "{sent:?}");
+        assert!(!shell.quit_asked);
     }
 
     #[test]

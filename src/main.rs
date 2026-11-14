@@ -634,9 +634,11 @@ impl eframe::App for App {
         self.pump(ctx);
         self.serve_standby(ctx);
         // `ui` does not run while the Linux main window is minimized, so its X is read here.
-        let tray = self.tray_shown();
-        if let Mode::Resident { shell, .. } = &mut self.mode {
-            shell.read_close_request(ctx, tray, &self.shared);
+        if let Mode::Resident {
+            shell, resident, ..
+        } = &mut self.mode
+        {
+            shell.read_close_request(ctx, || resident.tray_shown(), &self.shared);
         }
     }
 
