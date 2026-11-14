@@ -115,7 +115,7 @@ Each release from 0.2.1 on has a `SHA256SUMS` file with the checksum of every in
 The builds are not code-signed yet:
 - **Windows**: SmartScreen may say it protected your PC. Click "More info" > "Run anyway". On Windows 10 the new tray icon starts hidden under the `^` arrow: drag it to the taskbar.
 - **macOS**: the first time macOS blocks it. Open System Settings > Privacy & Security, click "Open Anyway" next to Takeshot and confirm (or run `xattr -cr /Applications/Takeshot.app`). Then allow it in Privacy & Security > Screen & System Audio Recording.
-- **Linux**: the tray icon needs an AppIndicator panel (`libayatana-appindicator3-1`); without it, Quit is in Settings > General. On Wayland the notice after copying or saving is a desktop notification. The "System" look follows the desktop's light or dark setting (read from the desktop portal, so it also changes while the app is open); with no portal it stays dark.
+- **Linux**: the tray icon needs an AppIndicator panel (`libayatana-appindicator3-1`); without it, Quit is in Settings > General. On Wayland the notice after copying or saving is a desktop notification. The "System" look follows the desktop's light or dark setting (read from the desktop portal, so it also changes while the app is open); with no portal it stays dark, and the first frame of a window is dark until the portal answers.
 
 On Windows, the setup.exe's uninstaller stops Takeshot, removes its start-with-the-system entry (an update keeps it) and can delete its settings. The MSI installs for every user, asks for an administrator, and leaves the login entry behind.
 
@@ -300,7 +300,7 @@ Cada release a partir da 0.2.1 tem um arquivo `SHA256SUMS` com o checksum de cad
 As versões ainda não são assinadas:
 - **Windows**: o SmartScreen pode dizer que protegeu o computador. Clique em "Mais informações" > "Executar assim mesmo". No Windows 10 o ícone novo começa escondido na seta `^` da bandeja: arraste-o para a barra.
 - **macOS**: na primeira vez o macOS bloqueia. Abra Ajustes do Sistema > Privacidade e Segurança, clique em "Abrir Mesmo Assim" ao lado do Takeshot e confirme (ou rode `xattr -cr /Applications/Takeshot.app`). Depois libere em Privacidade e Segurança > Gravação de Tela e Áudio do Sistema.
-- **Linux**: o ícone da bandeja precisa de um painel com AppIndicator (`libayatana-appindicator3-1`); sem ele, Sair fica em Ajustes > Geral. No Wayland, o aviso ao copiar ou salvar é uma notificação do desktop. O visual "Sistema" acompanha o claro ou escuro do desktop (lido do portal do desktop, então muda também com o app aberto); sem portal, fica escuro.
+- **Linux**: o ícone da bandeja precisa de um painel com AppIndicator (`libayatana-appindicator3-1`); sem ele, Sair fica em Ajustes > Geral. No Wayland, o aviso ao copiar ou salvar é uma notificação do desktop. O visual "Sistema" acompanha o claro ou escuro do desktop (lido do portal do desktop, então muda também com o app aberto); sem portal, fica escuro, e o primeiro quadro de uma janela é escuro até o portal responder.
 
 No Windows, o desinstalador do setup.exe encerra o Takeshot, remove a entrada de iniciar com o sistema (uma atualização a mantém) e pode apagar as configurações. O MSI instala para todos os usuários, pede administrador e deixa a entrada de login.
 

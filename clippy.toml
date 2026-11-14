@@ -1,0 +1,3 @@
+disallowed-methods = [
+  { path = "egui::Context::system_theme", reason = "winit says nothing on X11 and only echoes the app's own setting on Wayland: use system::appearance::system_theme" },
+]
