@@ -19,7 +19,10 @@
 # And `tarball`: the commands of the tar.gz's INSTALL.txt run as they are, then the launcher entry
 # validates and the program starts from the PATH.
 #
-#   scripts/linux-smoke.sh [screens|resident|desktop|appearance|floor|tarball]   (default: all)
+# And `instance`: the resident's socket is its user's (scripts/container/instance-check.sh): a second user who
+# knows the first one's name cannot quit that resident, and the socket's folder is private.
+#
+#   scripts/linux-smoke.sh [screens|resident|desktop|appearance|instance|floor|tarball]   (default: all)
 set -eu
 only=${1:-all}
 want() { [ "$only" = all ] || [ "$only" = "$1" ]; }
@@ -115,6 +118,14 @@ if want appearance; then
   run "
     get /pk/$deb sway libgl1-mesa-dri libegl1 python3-gi python3-pil dbus dbus-bin
     dbus-run-session -- bash /t/appearance-check.sh wayland
+  "
+fi
+
+if want instance; then
+  echo "== deb on X11: the resident's socket belongs to its user (two users on one host)"
+  run "
+    get /pk/$deb xvfb xauth libgl1-mesa-dri procps util-linux
+    bash /t/instance-check.sh
   "
 fi
 

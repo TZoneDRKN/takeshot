@@ -1,13 +1,16 @@
 //! Single instance: the first Takeshot process owns a local socket; a second launch asks it to show a page and exits.
 //! Captures are one at a time too: a capture whose selection is on screen holds a file lock.
+//! The socket and the lock are the user's: a named pipe on Windows, files in a folder only that
+//! user can enter on Linux (`$XDG_RUNTIME_DIR/takeshot`) and macOS (the per-user temp folder), so
+//! another user of the same machine cannot talk to the resident, quit it or take its capture slot.
 //! Quit: the editors, pinned pictures and the capture register with the resident and listen on a
 //! socket of their own, so the tray's Quit can ask each whether it may close (an editor with
 //! changes asks its user first) and then tell all to close, or to stay after a Cancel.
 
 use super::log;
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 use interprocess::local_socket::GenericFilePath;
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
 use interprocess::local_socket::GenericNamespaced;
 use interprocess::local_socket::{ListenerOptions, Name, Stream, prelude::*};
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -56,18 +59,102 @@ pub fn endpoint() -> String {
     format!("takeshot-{}", if safe.is_empty() { "user" } else { &safe })
 }
 
-/// A named pipe on Windows and an abstract socket on Linux; on macOS a file in the per-user temp
-/// folder, since the shared `/tmp` would let other users take the name.
-#[cfg(not(target_os = "macos"))]
+/// A named pipe on Windows; on Unix a file in the user's own folder (`socket_dir`). An abstract
+/// socket, which Linux offers, has no permissions: any local user who knows the name could use it.
+#[cfg(windows)]
 fn socket_name(name: &str) -> io::Result<Name<'static>> {
     format!("{name}.sock").to_ns_name::<GenericNamespaced>()
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn socket_name(name: &str) -> io::Result<Name<'static>> {
-    std::env::temp_dir()
+    socket_dir()?
         .join(format!("{name}.sock"))
         .to_fs_name::<GenericFilePath>()
+}
+
+/// macOS: the per-user temp folder, since the shared `/tmp` would let other users take the name.
+#[cfg(target_os = "macos")]
+fn socket_dir() -> io::Result<std::path::PathBuf> {
+    Ok(std::env::temp_dir())
+}
+
+/// Linux: `$XDG_RUNTIME_DIR/takeshot`, else `<temp>/takeshot-<uid>`, the first that is a folder of
+/// this user that nobody else can enter. One that is not (another user made it first) is not used.
+#[cfg(target_os = "linux")]
+fn socket_dir() -> io::Result<std::path::PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    // The owner of /proc/self is this process's user.
+    let uid = std::fs::metadata("/proc/self")?.uid();
+    let dirs = socket_dir_candidates(
+        std::env::var_os("XDG_RUNTIME_DIR"),
+        &std::env::temp_dir(),
+        uid,
+    );
+    let mut last = io::Error::other("no folder for the socket");
+    for dir in dirs {
+        match private_dir(&dir, uid) {
+            Ok(()) => return Ok(dir),
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
+#[cfg(target_os = "linux")]
+fn socket_dir_candidates(
+    runtime_dir: Option<std::ffi::OsString>,
+    temp: &std::path::Path,
+    uid: u32,
+) -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(d) = runtime_dir
+        .map(std::path::PathBuf::from)
+        .filter(|d| d.is_absolute())
+    {
+        dirs.push(d.join("takeshot"));
+    }
+    dirs.push(temp.join(format!("takeshot-{uid}")));
+    dirs
+}
+
+/// Makes the folder (mode 0700) when it is not there and checks it is `uid`'s and closed to others.
+#[cfg(target_os = "linux")]
+fn private_dir(path: &std::path::Path, uid: u32) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    match std::fs::DirBuilder::new().mode(0o700).create(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e),
+    }
+    // The message has no path: the log is attached to bug reports.
+    if is_private(&std::fs::symlink_metadata(path)?, uid) {
+        Ok(())
+    } else {
+        Err(io::Error::other(
+            "the socket folder is not private to this user",
+        ))
+    }
+}
+
+/// A real folder (not a link) owned by `uid` that group and others cannot enter or read.
+#[cfg(target_os = "linux")]
+fn is_private(meta: &std::fs::Metadata, uid: u32) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    meta.is_dir() && meta.uid() == uid && meta.mode() & 0o077 == 0
+}
+
+/// Where the capture lock goes: next to the socket where that folder is the user's own, else the
+/// temp folder, as before.
+fn lock_dir() -> std::path::PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        socket_dir().unwrap_or_else(|_| std::env::temp_dir())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::env::temp_dir()
+    }
 }
 
 /// The name is taken: Unix says "address in use", Windows says "access denied" for an existing pipe.
@@ -140,7 +227,7 @@ pub struct CaptureSlot(#[allow(dead_code)] Option<std::fs::File>);
 /// lock goes with the process, so a crashed capture never blocks the next. Where the lock file
 /// cannot be used, captures run unguarded.
 pub fn capture_slot(name: &str) -> Option<CaptureSlot> {
-    let path = std::env::temp_dir().join(format!("{name}.capture.lock"));
+    let path = lock_dir().join(format!("{name}.capture.lock"));
     let file = match std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -624,15 +711,122 @@ mod tests {
         server.join().unwrap();
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     #[test]
     fn a_stale_socket_file_is_reclaimed() {
         let name = unique("stale");
-        let path = std::env::temp_dir().join(format!("{name}.sock"));
+        let path = socket_dir().unwrap().join(format!("{name}.sock"));
         // std leaves the file behind when its listener drops, like a crashed resident.
         drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
         assert!(path.exists());
         assert!(matches!(claim(&name), Claim::Primary(_)));
+    }
+
+    #[cfg(target_os = "linux")]
+    fn our_uid() -> u32 {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata("/proc/self").unwrap().uid()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn scratch(test: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(unique(test));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_socket_folder_is_the_runtime_folder_then_one_in_temp() {
+        use std::path::{Path, PathBuf};
+        let tmp = Path::new("/tmp");
+        assert_eq!(
+            socket_dir_candidates(Some("/run/user/1000".into()), tmp, 1000),
+            [
+                PathBuf::from("/run/user/1000/takeshot"),
+                PathBuf::from("/tmp/takeshot-1000")
+            ]
+        );
+        // No runtime folder, or one that is not absolute (a relative path would mean a different
+        // folder per working directory): temp only.
+        for runtime in [None, Some("run/user".into()), Some("".into())] {
+            assert_eq!(
+                socket_dir_candidates(runtime, tmp, 7),
+                [PathBuf::from("/tmp/takeshot-7")]
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_folder_is_private_only_when_it_is_ours_and_closed_to_others() {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        let base = scratch("private");
+        let ours = base.join("ours");
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&ours)
+            .unwrap();
+        let uid = our_uid();
+        let meta = |p: &std::path::Path| std::fs::symlink_metadata(p).unwrap();
+        assert!(is_private(&meta(&ours), uid));
+        assert!(!is_private(&meta(&ours), uid + 1), "another user's folder");
+        for mode in [0o750, 0o705, 0o770, 0o707, 0o755] {
+            std::fs::set_permissions(&ours, std::fs::Permissions::from_mode(mode)).unwrap();
+            assert!(
+                !is_private(&meta(&ours), uid),
+                "mode {mode:o} lets others in"
+            );
+        }
+        std::fs::set_permissions(&ours, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&ours, &link).unwrap();
+        assert!(!is_private(&meta(&link), uid), "a link is not the folder");
+        let file = base.join("file");
+        std::fs::write(&file, b"").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(!is_private(&meta(&file), uid), "a file is not a folder");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_socket_folder_is_made_closed_and_one_left_open_is_refused() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let base = scratch("makes");
+        let dir = base.join("takeshot");
+        let uid = our_uid();
+        private_dir(&dir, uid).unwrap();
+        assert_eq!(std::fs::metadata(&dir).unwrap().mode() & 0o777, 0o700);
+        private_dir(&dir, uid).expect("a second call finds it as it is");
+        assert!(private_dir(&dir, uid + 1).is_err(), "not this user's");
+        // Someone else's folder, open to all, that was there before: not used, not fixed.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let err = private_dir(&dir, uid).unwrap_err().to_string();
+        assert!(
+            !err.contains(base.to_str().unwrap()),
+            "no path in the message: {err}"
+        );
+        assert_eq!(std::fs::metadata(&dir).unwrap().mode() & 0o777, 0o755);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_resident_socket_and_the_capture_lock_live_in_the_private_folder() {
+        let name = unique("folder");
+        let dir = socket_dir().unwrap();
+        assert!(is_private(
+            &std::fs::symlink_metadata(&dir).unwrap(),
+            our_uid()
+        ));
+        let Claim::Primary(_listener) = claim(&name) else {
+            panic!("the first claim must be primary");
+        };
+        assert!(dir.join(format!("{name}.sock")).exists());
+        let _slot = capture_slot(&name).expect("the slot is free");
+        assert!(dir.join(format!("{name}.capture.lock")).exists());
+        std::fs::remove_file(dir.join(format!("{name}.capture.lock"))).unwrap();
     }
 
     #[test]
