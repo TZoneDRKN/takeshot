@@ -79,7 +79,7 @@ fn deliver(spec: &Spec) {
         .timeout(Timeout::Milliseconds(SHOWN_FOR.as_millis() as u32));
     if spec.folder.is_some() {
         // The click on the notification itself: the desktops send it as "default".
-        n.action("default", "Open");
+        n.action("default", crate::ui::i18n::t(crate::ui::i18n::Msg::Open));
     }
     match n.show() {
         Ok(shown) => {
