@@ -52,12 +52,13 @@ print("light" if ImageStat.Stat(im).mean[0] > 128 else "dark")
 PY
 }
 
-# What an open window shows, read off the X screen (inside the window, which sits at the corner).
+# What an open window shows, read off the X screen: the empty part of the title bar, which is the
+# theme's own colour (the window sits at the corner; the pictures inside it are the same in both).
 grab() {
   python3 - << 'PY'
 import os
 from PIL import ImageGrab, ImageStat
-im = ImageGrab.grab(bbox=(100, 100, 500, 400), xdisplay=os.environ["DISPLAY"]).convert("L")
+im = ImageGrab.grab(bbox=(500, 8, 900, 36), xdisplay=os.environ["DISPLAY"]).convert("L")
 print("light" if ImageStat.Stat(im).mean[0] > 128 else "dark")
 PY
 }
