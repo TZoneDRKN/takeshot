@@ -345,16 +345,12 @@ impl Settings {
     }
 
     /// The settings in the file at `p` (the defaults without one), remembered in `seen`. A file
-    /// that is there but cannot be read (a typo from a hand edit, an empty file after a crash) is
-    /// copied to `settings.json.bad` first: the next save writes the defaults over it.
+    /// that is there but cannot be read (a typo from a hand edit, a file in another encoding) is
+    /// kept aside as `settings.json.bad` first: the next save writes the defaults over it.
     pub fn load_at(p: &std::path::Path, seen: &mut Seen) -> Self {
-        let s: Self = match std::fs::read_to_string(p) {
-            Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| {
-                if std::fs::copy(p, p.with_extension("json.bad")).is_ok() {
-                    crate::system::log::line(format_args!(
-                        "settings file unreadable: kept aside as .bad, defaults used"
-                    ));
-                }
+        let s: Self = match std::fs::read(p) {
+            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| {
+                keep_aside(p, &bytes);
                 Self::default()
             }),
             Err(_) => Self::default(),
@@ -374,9 +370,11 @@ impl Settings {
         if let Some(parent) = p.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let disk = std::fs::read_to_string(p)
-            .ok()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+        let disk = std::fs::read(p).ok().and_then(|bytes| {
+            serde_json::from_slice::<serde_json::Value>(&bytes)
+                .inspect_err(|_| keep_aside(p, &bytes))
+                .ok()
+        });
         let out = match (disk, seen.as_ref()) {
             (Some(mut d), Some(base)) => {
                 merge(&mut d, base, &mine);
@@ -403,9 +401,28 @@ impl Settings {
     }
 }
 
+/// Keeps the bytes of a settings file that could not be read in `settings.json.bad`, before
+/// something else is written over it (the log line says so: it goes into bug reports, with
+/// neither the path nor the content). An empty file has nothing to keep and must not take the
+/// place of an earlier copy that has.
+fn keep_aside(p: &std::path::Path, bytes: &[u8]) {
+    use crate::system::log::line;
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        line(format_args!("settings file empty: defaults used"));
+    } else if std::fs::write(p.with_extension("json.bad"), bytes).is_ok() {
+        line(format_args!(
+            "settings file unreadable: kept aside as .bad, defaults used"
+        ));
+    } else {
+        line(format_args!(
+            "settings file unreadable and could not be kept aside, defaults used"
+        ));
+    }
+}
+
 /// Writes `bytes` to `p` and waits until they are on the disk: renamed over the settings file
 /// before that, they could be lost to a power cut and leave it empty. Saves happen on a change
-/// (never while a button is held), so the wait is not felt.
+/// with no button held (the callers wait for it to be released), so the wait is not felt.
 fn write_durably(p: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let mut f = std::fs::File::create(p)?;
@@ -487,25 +504,51 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("settings.json");
-        let (typo, empty) = ("{\"lang\": \"pt\",, }", "");
-        for broken in [typo, empty] {
+        let bad = p.with_extension("json.bad");
+        // A typo, a file in another encoding (not UTF-8), what an editor leaves: each is kept.
+        let typo: &[u8] = b"{\"lang\": \"pt\",, }";
+        let latin1: &[u8] = b"{\"save_dir\": \"Jo\xe3o\"}";
+        let utf16: &[u8] = b"\xff\xfe{\x00}\x00";
+        for broken in [typo, latin1, utf16] {
             std::fs::write(&p, broken).unwrap();
             let mut seen = None;
             let s = Settings::load_at(&p, &mut seen);
             assert_eq!(s.lang, Settings::default().lang, "the defaults are used");
             s.save_at(&p, &mut seen);
-            let kept = std::fs::read_to_string(p.with_extension("json.bad")).unwrap();
-            assert_eq!(kept, broken, "what the user had is still there");
-            assert!(
-                serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&p).unwrap())
-                    .is_ok()
+            assert_eq!(
+                std::fs::read(&bad).unwrap(),
+                broken,
+                "what the user had is kept"
             );
+            let now = std::fs::read_to_string(&p).unwrap();
+            assert!(serde_json::from_str::<serde_json::Value>(&now).is_ok());
         }
+        // An empty file has nothing to keep and does not take the place of what is kept.
+        std::fs::write(&p, "").unwrap();
+        Settings::load_at(&p, &mut None);
+        assert_eq!(std::fs::read(&bad).unwrap(), utf16);
         // A file that reads leaves nothing aside.
-        let _ = std::fs::remove_file(p.with_extension("json.bad"));
+        let _ = std::fs::remove_file(&bad);
+        Settings::load_at(&p, &mut None);
+        assert!(!bad.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_save_over_a_file_that_cannot_be_read_keeps_it_aside_too() {
+        let dir = std::env::temp_dir().join(format!("takeshot-bad-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("settings.json");
+        // The resident loaded a good file once; the user then edited it by hand and made a typo.
         let mut seen = None;
-        Settings::load_at(&p, &mut seen);
-        assert!(!p.with_extension("json.bad").exists());
+        let s = Settings::load_at(&p, &mut seen);
+        std::fs::write(&p, "{ not json").unwrap();
+        s.save_at(&p, &mut seen);
+        assert_eq!(
+            std::fs::read(p.with_extension("json.bad")).unwrap(),
+            b"{ not json"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -523,6 +566,24 @@ mod tests {
             .filter(|n| n.ends_with(".tmp"))
             .collect();
         assert!(left.is_empty(), "left behind: {left:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_save_that_fails_leaves_the_file_as_it_was() {
+        let dir = std::env::temp_dir().join(format!("takeshot-keep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let p = dir.join("settings.json");
+        let mut seen = None;
+        let mut s = Settings::default();
+        s.save_at(&p, &mut seen);
+        let before = std::fs::read(&p).unwrap();
+        // A folder where this process's temporary file goes: creating it fails.
+        let tmp = p.with_extension(format!("json.{}.tmp", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        s.ui_mode = UiMode::Light;
+        s.save_at(&p, &mut seen);
+        assert_eq!(std::fs::read(&p).unwrap(), before, "the file is as it was");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
