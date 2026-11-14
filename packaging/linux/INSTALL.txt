@@ -1,0 +1,24 @@
+Takeshot, for your user only (no administrator needed)
+=======================================================
+
+  install -Dm755 takeshot ~/.local/bin/takeshot
+  install -Dm644 takeshot.desktop ~/.local/share/applications/takeshot.desktop
+  install -Dm644 takeshot.png ~/.local/share/icons/hicolor/256x256/apps/takeshot.png
+
+Run them in the folder where you unpacked this archive.
+
+~/.local/bin must be on your PATH: the launcher entry runs `takeshot`. On Debian and Ubuntu it is
+added at login only when the folder already exists, so log out and in after creating it. If it is
+not on your PATH, put the full path of the program in the Exec= lines of takeshot.desktop (Exec=
+does not expand `~`: write /home/<you>/.local/bin/takeshot).
+To remove Takeshot, delete those three files.
+
+Takeshot, só para o seu usuário (sem administrador)
+===================================================
+
+Os mesmos três comandos acima, na pasta onde você desempacotou este arquivo. O ~/.local/bin
+precisa estar no PATH: a entrada do menu roda `takeshot`. No Debian e no Ubuntu ele entra no PATH
+no login e só se a pasta já existir, então saia e entre de novo depois de criá-la. Se não estiver
+no PATH, ponha o caminho completo do programa nas linhas Exec= do takeshot.desktop (o Exec= não
+expande `~`: escreva /home/<você>/.local/bin/takeshot). Para remover o Takeshot, apague esses três
+arquivos.

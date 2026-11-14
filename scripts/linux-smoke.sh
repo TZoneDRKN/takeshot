@@ -16,7 +16,10 @@
 # bundles, so the README sends that system to the .deb), and the tar.gz and the AppImage on Fedora 36
 # (glibc 2.35, the oldest the README promises on the rpm side).
 #
-#   scripts/linux-smoke.sh [screens|resident|desktop|appearance|floor]   (default: all)
+# And `tarball`: the commands of the tar.gz's INSTALL.txt run as they are, then the launcher entry
+# validates and the program starts from the PATH.
+#
+#   scripts/linux-smoke.sh [screens|resident|desktop|appearance|floor|tarball]   (default: all)
 set -eu
 only=${1:-all}
 want() { [ "$only" = all ] || [ "$only" = "$1" ]; }
@@ -148,5 +151,21 @@ if want floor; then
     xvfb-run -a -s '-screen 0 1280x800x24' /tmp/t/takeshot --page inicio --lang en --screenshot /pk/smoke/floor-fedora-36-tgz-home.png
     cp /pk/$appimage /tmp/t.AppImage && chmod +x /tmp/t.AppImage
     xvfb-run -a -s '-screen 0 1280x800x24' /tmp/t.AppImage --appimage-extract-and-run --page estilo --lang en --screenshot /pk/smoke/floor-fedora-36-appimage-style.png
+  "
+fi
+
+if want tarball; then
+  echo "== tar.gz: INSTALL.txt as it is, the entry validates, the program starts from the PATH"
+  run_on debian:12 "
+    get libgtk-3-0 libgbm1 desktop-file-utils
+    mkdir -p /tmp/t && tar -xzf /pk/$tgz -C /tmp/t && cd /tmp/t
+    grep '^  install' INSTALL.txt | sh -e
+    export PATH=\$HOME/.local/bin:\$PATH
+    takeshot --version
+    desktop-file-validate ~/.local/share/applications/takeshot.desktop
+    grep -qx 'Exec=takeshot' ~/.local/share/applications/takeshot.desktop
+    grep -qx 'Icon=takeshot' ~/.local/share/applications/takeshot.desktop
+    test -s ~/.local/share/icons/hicolor/256x256/apps/takeshot.png
+    test -s LICENSE && test -s THIRD_PARTY_NOTICES.md
   "
 fi

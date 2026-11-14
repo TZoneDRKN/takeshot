@@ -208,7 +208,7 @@ jobs:
               cargo packager --release --formats deb,appimage
               cp target/packages/*.deb "dist/takeshot-$VERSION-linux-x86_64.deb"
               cp target/packages/*.AppImage "dist/takeshot-$VERSION-linux-x86_64.AppImage"
-              tar -czf "dist/takeshot-$VERSION-linux-x86_64.tar.gz" -C target/release takeshot -C "$PWD" LICENSE THIRD_PARTY_NOTICES.md
+              bash scripts/linux-tarball.sh target/packages/*.deb target/release/takeshot "dist/takeshot-$VERSION-linux-x86_64.tar.gz"
               ;;
           esac
           ls -la dist

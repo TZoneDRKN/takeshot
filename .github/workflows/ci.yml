@@ -32,7 +32,7 @@ jobs:
           fi
           changed=$(git diff --name-only "$base" HEAD)
           echo "$changed"
-          if echo "$changed" | grep -qE '^(Cargo\.toml|Cargo\.lock|build\.rs|packaging/|assets/brand/|\.github/)'; then
+          if echo "$changed" | grep -qE '^(Cargo\.toml|Cargo\.lock|build\.rs|packaging/|assets/brand/|\.github/|scripts/(glibc-floor|linux-tarball)\.sh)'; then
             echo "package=true" >> "$GITHUB_OUTPUT"
           else
             echo "package=false" >> "$GITHUB_OUTPUT"
