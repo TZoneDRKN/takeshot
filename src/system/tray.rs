@@ -86,6 +86,10 @@ pub enum TrayEvent {
     /// A native menu entry (Linux).
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Action(TrayAction),
+    /// The user wrote the Windows colour settings: the taskbar may be light or dark now, and the
+    /// glyph has to be drawn again for it.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    TaskbarTheme,
 }
 
 /// The id of a native menu entry for an action; recents are numbered by position.
@@ -177,9 +181,87 @@ pub fn taskbar_is_dark() -> bool {
     use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
     RegKey::predef(HKEY_CURRENT_USER)
-        .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize")
+        .open_subkey(PERSONALIZE)
         .and_then(|k| k.get_value::<u32, _>("SystemUsesLightTheme"))
         .map_or(true, |v| v == 0)
+}
+
+/// Where Windows keeps the light or dark choice of the taskbar (`SystemUsesLightTheme`).
+#[cfg(windows)]
+const PERSONALIZE: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+
+/// Calls `changed` after each write under `HKEY_CURRENT_USER\<subkey>`, from a thread of its own
+/// that lives with the process. The key is armed again before `changed` runs, so `changed` reads
+/// what is there after the arming and no write can fall between a wake-up and the next wait.
+#[cfg(windows)]
+fn watch_current_user_key(subkey: &str, changed: impl Fn() + Send + 'static) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
+    use windows_sys::Win32::System::Registry::{
+        REG_NOTIFY_CHANGE_LAST_SET, REG_NOTIFY_THREAD_AGNOSTIC, RegNotifyChangeKeyValue,
+    };
+    use windows_sys::Win32::System::Threading::{CreateEventW, INFINITE, WaitForSingleObject};
+    use winreg::RegKey;
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_NOTIFY};
+
+    let key = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags(subkey, KEY_NOTIFY)
+        .map_err(|e| e.to_string())?;
+    // SAFETY: plain calls with null attributes and name. The event is closed by the thread when it
+    // ends, or here when the thread cannot be started.
+    let event = unsafe { CreateEventW(std::ptr::null(), 0, 0, std::ptr::null()) };
+    if event.is_null() {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    // A handle is not `Send`; this one is only waited on by the thread below.
+    let event = event as usize;
+    let arm = move |key: &RegKey| -> Result<(), String> {
+        // SAFETY: `key` is open and `event` is a live event. The thread-agnostic flag keeps the
+        // registration when the thread that armed it is not the one that waits.
+        let code = unsafe {
+            RegNotifyChangeKeyValue(
+                key.raw_handle(),
+                0,
+                REG_NOTIFY_CHANGE_LAST_SET | REG_NOTIFY_THREAD_AGNOSTIC,
+                event as HANDLE,
+                1,
+            )
+        };
+        match code {
+            0 => Ok(()),
+            code => Err(std::io::Error::from_raw_os_error(code as i32).to_string()),
+        }
+    };
+    let started = arm(&key).and_then(|()| {
+        std::thread::Builder::new()
+            .name("takeshot-registry-watch".into())
+            .spawn(move || {
+                loop {
+                    // SAFETY: `event` is the live event made above; nothing else waits on or
+                    // closes it.
+                    let woke = unsafe { WaitForSingleObject(event as HANDLE, INFINITE) };
+                    if woke != WAIT_OBJECT_0 {
+                        crate::system::log::line(format_args!(
+                            "registry watch stopped: the wait returned {woke}"
+                        ));
+                        break;
+                    }
+                    if let Err(e) = arm(&key) {
+                        crate::system::log::line(format_args!("registry watch stopped: {e}"));
+                        break;
+                    }
+                    changed();
+                }
+                // SAFETY: as above; the thread is done with it.
+                unsafe { CloseHandle(event as HANDLE) };
+            })
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    });
+    if started.is_err() {
+        // SAFETY: no thread has the event: it was never started, or it could not be.
+        unsafe { CloseHandle(event as HANDLE) };
+    }
+    started
 }
 
 #[cfg(not(windows))]
@@ -206,6 +288,9 @@ impl Tray {
         on_event: impl Fn(TrayEvent) + Send + Sync + 'static,
     ) -> Result<Self, String> {
         use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent};
+        let on_event = std::sync::Arc::new(on_event);
+        #[cfg(windows)]
+        let on_taskbar = on_event.clone();
         TrayIconEvent::set_event_handler(Some(move |e: TrayIconEvent| {
             if let TrayIconEvent::Click {
                 button,
@@ -236,6 +321,14 @@ impl Tray {
             .with_menu_on_right_click(false)
             .build()
             .map_err(|e| e.to_string())?;
+        // The taskbar's colour is the user's to change while the app runs (macOS tints the glyph
+        // itself).
+        #[cfg(windows)]
+        if let Err(e) = watch_current_user_key(PERSONALIZE, move || {
+            on_taskbar(TrayEvent::TaskbarTheme);
+        }) {
+            crate::system::log::line(format_args!("taskbar colour not watched: {e}"));
+        }
         Ok(Self { icon })
     }
 
@@ -443,6 +536,60 @@ mod tests {
                 TrayEntry::Separator => "-".into(),
             })
             .collect()
+    }
+
+    /// A scratch key under the user's hive, gone when the test ends.
+    #[cfg(windows)]
+    struct Scratch(String);
+
+    #[cfg(windows)]
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            use winreg::RegKey;
+            let _ = RegKey::predef(winreg::enums::HKEY_CURRENT_USER).delete_subkey_all(&self.0);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_write_under_the_watched_key_is_reported_each_time() {
+        use std::sync::Mutex;
+        use std::sync::mpsc::channel;
+        use std::time::Duration;
+        use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
+
+        let path = format!("Software\\takeshot-test-{}", std::process::id());
+        let (key, _) = RegKey::predef(HKEY_CURRENT_USER)
+            .create_subkey(&path)
+            .unwrap();
+        let _scratch = Scratch(path.clone());
+        let (reported, heard) = channel();
+        let (release, hold) = channel::<()>();
+        let hold = Mutex::new(hold);
+        watch_current_user_key(&path, move || {
+            let _ = reported.send(());
+            // The first report stays open until the test has written again: that write lands
+            // while the callback runs and has to be reported too, as a write that came later.
+            let _ = hold.lock().unwrap().recv_timeout(Duration::from_secs(5));
+        })
+        .unwrap();
+        let wait = Duration::from_secs(5);
+        key.set_value("SystemUsesLightTheme", &1u32).unwrap();
+        heard.recv_timeout(wait).expect("the first write");
+        key.set_value("SystemUsesLightTheme", &0u32).unwrap();
+        release.send(()).unwrap();
+        heard
+            .recv_timeout(wait)
+            .expect("the write made while the callback ran");
+        let _ = release.send(());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_key_that_is_not_there_is_not_watched() {
+        let gone = format!("Software\\takeshot-test-none-{}", std::process::id());
+        assert!(watch_current_user_key(&gone, || {}).is_err());
     }
 
     #[test]

@@ -264,6 +264,11 @@ impl Shell {
                 }
             }
             ResidentEvent::Tray(TrayEvent::Action(a)) => self.run(ctx, a, home, shared),
+            // The next `tick` draws the icon again, reading the taskbar then.
+            ResidentEvent::Tray(TrayEvent::TaskbarTheme) => {
+                crate::system::log::line(format_args!("taskbar colour written, tray icon redrawn"));
+                self.tray_theme = None;
+            }
             ResidentEvent::Quit(waiter) => {
                 self.quit_waiters.push(waiter);
                 self.quit(ctx);
@@ -947,6 +952,29 @@ mod tests {
             "a new theme changes it"
         );
         assert!(!shell.theme_changed(ThemeId::Coral));
+    }
+
+    #[test]
+    fn a_new_taskbar_theme_draws_the_tray_icon_again() {
+        // The glyph is white on a dark taskbar and near black on a light one, so the same Takeshot
+        // theme needs a new picture when only the taskbar changed.
+        use crate::ui::tokens::ThemeId;
+        let mut shell = Shell::new(true, true);
+        let mut shared = Shared::for_tests();
+        let ctx = egui::Context::default();
+        assert!(shell.theme_changed(ThemeId::TakeUi));
+        assert!(!shell.theme_changed(ThemeId::TakeUi));
+        shell.handle(
+            &ctx,
+            ResidentEvent::Tray(TrayEvent::TaskbarTheme),
+            None,
+            &mut shared,
+        );
+        assert!(
+            shell.theme_changed(ThemeId::TakeUi),
+            "the taskbar changed: the icon is drawn again"
+        );
+        assert!(!shell.theme_changed(ThemeId::TakeUi), "and only once");
     }
 
     #[test]
