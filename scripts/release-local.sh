@@ -141,7 +141,7 @@ pick() { # pick <name> <glob>: copy the one file the glob matches
 }
 
 step "Windows: cargo build --release"
-run windows-build cargo build --release
+run windows-build cargo build --release --locked
 step "Windows: cargo packager (nsis, wix)"
 rm -rf target/packages
 run windows-packager cargo packager --release --formats nsis,wix

@@ -35,8 +35,8 @@ if [ "$run_host" = 1 ]; then
   echo "check: host (fmt, clippy, tests)..."
   {
     cargo fmt --check &&
-      cargo clippy --all-targets -- -D warnings &&
-      cargo test
+      cargo clippy --locked --all-targets -- -D warnings &&
+      cargo test --locked
   } > "$log" 2>&1 || fail "host" "$log"
 fi
 
@@ -70,9 +70,9 @@ if [ "$run_linux" = 1 ]; then
         rustup target add aarch64-apple-darwin > /dev/null 2>&1 || true
         echo "== $(rustc --version)"
         echo "== linux: fmt";    cargo fmt --check
-        echo "== linux: clippy"; cargo clippy --all-targets -- -D warnings
-        echo "== linux: test";   cargo test
-        echo "== macos: clippy"; cargo clippy --all-targets --target aarch64-apple-darwin -- -D warnings
+        echo "== linux: clippy"; cargo clippy --locked --all-targets -- -D warnings
+        echo "== linux: test";   cargo test --locked
+        echo "== macos: clippy"; cargo clippy --locked --all-targets --target aarch64-apple-darwin -- -D warnings
       ' > "$log" 2>&1 || fail "Linux/macOS" "$log"
 fi
 
