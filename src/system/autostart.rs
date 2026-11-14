@@ -148,7 +148,21 @@ mod tests {
             match c {
                 '"' => (quoted, started) = (!quoted, true),
                 '\\' if quoted => {
-                    current.push(chars.next().expect("a character after the backslash"))
+                    let next = chars.next().expect("a character after the backslash");
+                    assert!(
+                        matches!(next, '"' | '`' | '$' | '\\'),
+                        "a backslash before {next} in {value}"
+                    );
+                    current.push(next)
+                }
+                // The specification makes these the writer's job to escape inside the quotes, and
+                // to quote the argument at all outside them.
+                '$' | '`' if quoted => panic!("an unescaped {c} in a quoted argument in {value}"),
+                '\\' | '\'' | '$' | '`' | ';' | '&' | '|' | '<' | '>' | '~' | '*' | '?' | '#'
+                | '(' | ')' | '\t' | '\n'
+                    if !quoted =>
+                {
+                    panic!("a reserved {c:?} outside quotes in {value}")
                 }
                 '%' => {
                     assert_eq!(chars.next(), Some('%'), "a field code in {value}");
