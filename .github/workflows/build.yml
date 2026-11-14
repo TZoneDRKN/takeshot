@@ -38,7 +38,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(inputs.targets) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ inputs.ref }}
 
@@ -57,7 +57,7 @@ jobs:
             libxrandr-dev libx11-dev libxkbcommon-dev libwayland-dev libdbus-1-dev libpipewire-0.3-dev \
             libegl1-mesa-dev libgbm-dev libgl1-mesa-dev file
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # bash stops at the first failing command; the Windows default (pwsh) only checks the last one.
       - name: Lint and test
@@ -65,18 +65,18 @@ jobs:
         shell: bash
         run: |
           cargo fmt --check
-          cargo clippy --all-targets -- -D warnings
-          cargo test
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
 
       - name: Build (Windows / Linux)
         if: inputs.package && runner.os != 'macOS'
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Build (macOS universal)
         if: inputs.package && runner.os == 'macOS'
         run: |
-          cargo build --release --target aarch64-apple-darwin
-          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
           mkdir -p target/universal/release
           lipo -create -output target/universal/release/takeshot \
             target/aarch64-apple-darwin/release/takeshot target/x86_64-apple-darwin/release/takeshot
@@ -84,7 +84,7 @@ jobs:
       - name: cargo-packager (cached)
         if: inputs.package
         id: packager
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cargo/bin/cargo-packager
@@ -103,7 +103,7 @@ jobs:
       # and APPLE_TEAM_ID.
       - name: Sign the program (Windows)
         if: inputs.package && runner.os == 'Windows' && vars.SIGN_WINDOWS == 'true'
-        uses: azure/artifact-signing-action@v2.0.0
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -197,7 +197,7 @@ jobs:
 
       - name: Sign the installers (Windows)
         if: inputs.package && runner.os == 'Windows' && vars.SIGN_WINDOWS == 'true'
-        uses: azure/artifact-signing-action@v2.0.0
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -222,7 +222,7 @@ jobs:
           xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
           xcrun stapler staple "$DMG"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: inputs.package
         with:
           name: takeshot-${{ matrix.name }}
