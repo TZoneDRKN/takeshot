@@ -60,7 +60,7 @@ if [ "$run_linux" = 1 ]; then
   # Named volumes keep the crates, the build and rustup between runs.
   git archive --format=tar "$sha" |
     MSYS_NO_PATHCONV=1 docker run --rm -i \
-      -v takeshot-ci-target:/src/target \
+      -v takeshot-ci-debian12-target:/src/target \
       -v takeshot-ci-registry:/usr/local/cargo/registry \
       -v takeshot-ci-rustup:/usr/local/rustup \
       "$tag" bash -c '

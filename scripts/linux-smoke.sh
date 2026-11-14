@@ -10,8 +10,10 @@
 # Last, the launcher entry the deb installs is validated and its right-click actions run
 # (scripts/container/desktop-check.sh), and the "System" mode follows the setting a stand-in
 # desktop portal reports, on X11 and on Wayland (scripts/container/appearance-check.sh).
+# And `floor`: the .deb installed on the oldest systems it claims (Ubuntu 22.04 and Debian 12, whose
+# glibc is the floor of the files), on X11.
 #
-#   scripts/linux-smoke.sh [screens|resident|desktop|appearance]   (default: all)
+#   scripts/linux-smoke.sh [screens|resident|desktop|appearance|floor]   (default: all)
 set -eu
 only=${1:-all}
 want() { [ "$only" = all ] || [ "$only" = "$1" ]; }
@@ -34,7 +36,8 @@ prelude='
   }
 '
 # --init: as PID 1, xvfb-run never hears that Xvfb is ready.
-run() { MSYS_NO_PATHCONV=1 docker run --rm --init -v "$mount" -v "$checks" ubuntu:24.04 bash -c "$prelude $1"; }
+run_on() { MSYS_NO_PATHCONV=1 docker run --rm --init -v "$mount" -v "$checks" "$1" bash -c "$prelude $2"; }
+run() { run_on ubuntu:24.04 "$1"; }
 
 if want screens; then
 echo "== deb on X11"
@@ -106,4 +109,16 @@ if want appearance; then
     get /pk/$deb sway libgl1-mesa-dri libegl1 python3-gi python3-pil dbus dbus-bin
     dbus-run-session -- bash /t/appearance-check.sh wayland
   "
+fi
+
+if want floor; then
+  for image in ubuntu:22.04 debian:12; do
+    echo "== deb on X11 in $image: the oldest systems the files claim"
+    run_on "$image" "
+      get /pk/$deb xvfb xauth libgl1-mesa-dri
+      takeshot --version
+      xvfb-run -a -s '-screen 0 1280x800x24' takeshot --page inicio --lang en --screenshot /pk/smoke/floor-${image/:/-}-home.png
+      xvfb-run -a -s '-screen 0 1280x800x24' takeshot --page editor --lang en --theme coral --screenshot /pk/smoke/floor-${image/:/-}-editor.png
+    "
+  done
 fi

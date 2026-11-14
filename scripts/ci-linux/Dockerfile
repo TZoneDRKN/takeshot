@@ -1,7 +1,10 @@
-# The Linux job of .github/workflows/build.yml, as an image: same Ubuntu, same libraries, the
+# The Linux job of .github/workflows/build.yml, as an image: same Debian, same libraries, the
 # pinned Rust, plus the macOS target so clippy can check the macOS code (it only type-checks, no
 # linking). scripts/check.sh builds and runs it.
-FROM ubuntu:24.04
+# Debian 12 (glibc 2.36) on purpose: a binary needs the glibc of the machine it was linked on, so
+# this is the floor of every Linux download (Ubuntu 22.04+, Debian 12+, Fedora 36+). Its libraries
+# are the oldest the build supports (PipeWire 0.3.65; 0.3.48, Ubuntu 22.04's, is too old for libspa).
+FROM debian:12
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
