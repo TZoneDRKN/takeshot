@@ -1,0 +1,37 @@
+[Desktop Entry]
+Type=Application
+Name=Takeshot
+GenericName=Screenshot tool
+GenericName[pt]=Ferramenta de captura de tela
+{{#if comment}}
+Comment={{comment}}
+{{/if}}
+Keywords=screenshot;screen capture;print screen;annotate;
+Keywords[pt]=captura de tela;print;imprimir tela;anotar;
+Exec={{exec}}
+Icon={{icon}}
+Terminal=false
+Categories={{categories}}
+# The app id the window announces (`with_app_id("takeshot")`), so a launcher groups its windows here.
+StartupWMClass=takeshot
+# Right-click menu of the launcher. On Wayland, where an app cannot grab PrtSc, these are the way in
+# without a shortcut of your own. Each runs the same binary; the flags are the ones `main.rs` reads.
+Actions=capture-area;capture-full;quit;
+
+[Desktop Action capture-area]
+Name=Capture area
+Name[pt]=Capturar área
+Exec={{exec}} --capture
+Icon={{icon}}
+
+[Desktop Action capture-full]
+Name=Capture full screen
+Name[pt]=Capturar tela cheia
+Exec={{exec}} --capture --full
+Icon={{icon}}
+
+[Desktop Action quit]
+Name=Quit
+Name[pt]=Sair
+Exec={{exec}} --quit
+Icon={{icon}}

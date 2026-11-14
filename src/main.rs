@@ -210,6 +210,10 @@ pub fn parse_section(s: &str) -> Option<home::SettingsSection> {
 }
 
 fn parse_args() -> Args {
+    parse_from(&std::env::args().skip(1).collect::<Vec<_>>())
+}
+
+fn parse_from(v: &[String]) -> Args {
     let mut a = Args {
         launch: Launch::Home,
         minimized: false,
@@ -225,7 +229,6 @@ fn parse_args() -> Args {
         section: None,
         quit: false,
     };
-    let v: Vec<String> = std::env::args().skip(1).collect();
     let mut full = false;
     let mut capture = false;
     let mut i = 0;
@@ -1525,6 +1528,60 @@ mod tests {
         // `--screenshot` and `--sample` render a picture for a script, nobody is there to click.
         assert!(!tells_start_failure(&Launch::Home, true));
         assert!(!tells_start_failure(&Launch::Edit(None), true));
+    }
+
+    /// The lines of `[Desktop Action <id>]` in the launcher entry cargo-packager fills in.
+    fn desktop_action<'a>(entry: &'a str, id: &str) -> Vec<&'a str> {
+        let header = format!("[Desktop Action {id}]");
+        let after = entry.split(&header).nth(1);
+        let section = after.unwrap_or_else(|| panic!("no {header} in the launcher entry"));
+        section
+            .lines()
+            .skip(1)
+            .take_while(|l| !l.starts_with('['))
+            .collect()
+    }
+
+    /// What an action runs, as the arguments after the program.
+    fn desktop_action_args(entry: &str, id: &str) -> Vec<String> {
+        let lines = desktop_action(entry, id);
+        let exec = lines.iter().find_map(|l| l.strip_prefix("Exec="));
+        let exec = exec.unwrap_or_else(|| panic!("{id} has no Exec"));
+        let args = exec.strip_prefix("{{exec}}");
+        let args = args.unwrap_or_else(|| panic!("{id} does not run the app itself"));
+        args.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn the_launcher_entry_offers_actions_the_app_understands() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/packaging/linux/takeshot.desktop"
+        );
+        let entry = std::fs::read_to_string(path).expect("the launcher entry");
+        let listed = entry.lines().find_map(|l| l.strip_prefix("Actions="));
+        assert_eq!(listed, Some("capture-area;capture-full;quit;"));
+        // `parse_args` ignores a flag it does not know, so a typo in an action would be a menu
+        // entry that only opens the main window.
+        let launch = |id: &str| parse_from(&desktop_action_args(&entry, id)).launch;
+        assert!(matches!(
+            launch("capture-area"),
+            Launch::Capture { full: false }
+        ));
+        assert!(matches!(
+            launch("capture-full"),
+            Launch::Capture { full: true }
+        ));
+        assert!(parse_from(&desktop_action_args(&entry, "quit")).quit);
+        // Every action is named in both languages of the app.
+        for id in ["capture-area", "capture-full", "quit"] {
+            let lines = desktop_action(&entry, id);
+            let has = |key: &str| lines.iter().any(|l| l.starts_with(key));
+            assert!(has("Name="), "{id} has no name");
+            assert!(has("Name[pt]="), "{id} has no Portuguese name");
+        }
+        // The window's app id (`with_app_id`), which is what the launcher groups its windows under.
+        assert!(entry.lines().any(|l| l == "StartupWMClass=takeshot"));
     }
 
     fn shot_at(x: i32, y: i32, scale: f32, w: u32, h: u32) -> capture::Shot {

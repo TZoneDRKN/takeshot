@@ -7,8 +7,10 @@
 # Each run is `takeshot --screenshot`: the window draws ~120 frames and saves its picture.
 # Then the resident's window is checked (scripts/container/resident-check.sh): it is made when
 # wanted, destroyed to hide it to the tray, and made again, on X11 and on Wayland.
+# Last, the launcher entry the deb installs is validated and its right-click actions run
+# (scripts/container/desktop-check.sh).
 #
-#   scripts/linux-smoke.sh [screens|resident]   (default: both)
+#   scripts/linux-smoke.sh [screens|resident|desktop]   (default: all)
 set -eu
 only=${1:-all}
 want() { [ "$only" = all ] || [ "$only" = "$1" ]; }
@@ -80,5 +82,13 @@ if want resident; then
   run "
     get /pk/$deb sway libgl1-mesa-dri libegl1 jq procps mako-notifier dbus dbus-bin
     dbus-run-session -- bash /t/resident-check.sh wayland
+  "
+fi
+
+if want desktop; then
+  echo "== deb on X11: the launcher entry and its actions"
+  run "
+    get /pk/$deb xvfb xauth libgl1-mesa-dri openbox wmctrl x11-utils procps dbus dbus-bin desktop-file-utils
+    dbus-run-session -- bash /t/desktop-check.sh
   "
 fi
