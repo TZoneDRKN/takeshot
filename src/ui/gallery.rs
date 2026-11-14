@@ -52,7 +52,8 @@ impl Gallery {
     }
 
     fn reapply(&mut self, ctx: &egui::Context) {
-        let dark = tokens::effective_dark(self.ui_mode, ctx.system_theme());
+        let dark =
+            tokens::effective_dark(self.ui_mode, crate::system::appearance::system_theme(ctx));
         self.tokens = tokens::tokens(self.theme, dark);
         crate::views::begin_frame(ctx, &self.tokens);
         i18n::set_lang(i18n::resolve(self.lang, i18n::system_locale().as_deref()));
@@ -127,7 +128,10 @@ impl Gallery {
             )
             .changed();
         });
-        let follow_os = tokens::effective_dark(self.ui_mode, ui.ctx().system_theme()) != tk.dark;
+        let follow_os = tokens::effective_dark(
+            self.ui_mode,
+            crate::system::appearance::system_theme(ui.ctx()),
+        ) != tk.dark;
         if changed || follow_os {
             self.reapply(ui.ctx());
         }

@@ -194,7 +194,7 @@ impl Shell {
     }
 
     fn theme(ctx: &egui::Context, shared: &Shared) -> Tokens {
-        shared.tokens(ctx.system_theme())
+        shared.tokens(crate::system::appearance::system_theme(ctx))
     }
 
     /// The tray menu entries for now; capture items lose their shortcut text when shortcuts are off.
@@ -465,7 +465,9 @@ impl Shell {
         }
         if self.hosted {
             if self.main_open {
-                let theme = shared.tokens(ctx.system_theme()).theme;
+                let theme = shared
+                    .tokens(crate::system::appearance::system_theme(&ctx))
+                    .theme;
                 if self.icon.as_ref().is_none_or(|(t, _)| *t != theme) {
                     self.icon = Some((theme, Arc::new(crate::ui::brand::window_icon(theme))));
                 }
@@ -520,7 +522,7 @@ impl Shell {
                 XAction::Quit => self.quit(&ctx),
             }
         }
-        let t = shared.tokens(ctx.system_theme());
+        let t = shared.tokens(crate::system::appearance::system_theme(&ctx));
         crate::views::begin_frame(&ctx, &t);
         for a in crate::views::main_window(ui, &t, home, shared) {
             home.apply(a, &ctx, shared);
@@ -683,7 +685,11 @@ fn open_windows_keyboard_settings() {
 fn draw_toast(ctx: &egui::Context, shared: &mut Shared) {
     if let Some((msg, at)) = &shared.toast {
         if at.elapsed().as_secs_f32() < crate::ui::kit::toast_seconds(msg) {
-            crate::ui::kit::toast(ctx, &shared.tokens(ctx.system_theme()), msg);
+            crate::ui::kit::toast(
+                ctx,
+                &shared.tokens(crate::system::appearance::system_theme(ctx)),
+                msg,
+            );
             ctx.request_repaint();
         } else {
             shared.toast = None;

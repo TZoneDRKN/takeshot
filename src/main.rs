@@ -556,7 +556,10 @@ impl App {
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         self.shared.logo = widgets::LogoCache::new();
         self.shared.logo.sync(ctx, &self.shared.settings.watermark);
-        views::begin_frame(ctx, &self.shared.tokens(ctx.system_theme()));
+        views::begin_frame(
+            ctx,
+            &self.shared.tokens(system::appearance::system_theme(ctx)),
+        );
         if let Mode::Resident {
             home,
             shell,
@@ -638,7 +641,7 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         let sw = match &mut self.mode {
             Mode::Home(h) => {
-                let t = self.shared.tokens(ctx.system_theme());
+                let t = self.shared.tokens(system::appearance::system_theme(&ctx));
                 views::begin_frame(&ctx, &t);
                 for a in views::main_window(ui, &t, h, &mut self.shared) {
                     h.apply(a, &ctx, &mut self.shared);
@@ -660,7 +663,7 @@ impl eframe::App for App {
                 others,
                 active,
             } => {
-                let t = self.shared.tokens(ctx.system_theme());
+                let t = self.shared.tokens(system::appearance::system_theme(&ctx));
                 views::begin_frame(&ctx, &t);
                 // The other monitors' windows have no `Frame` of their own; the save dialog takes the
                 // first window as its owner, or it would open behind these always-on-top windows.
@@ -683,17 +686,17 @@ impl eframe::App for App {
                 sw
             }
             Mode::Editor(e) => {
-                let t = self.shared.tokens(ctx.system_theme());
+                let t = self.shared.tokens(system::appearance::system_theme(&ctx));
                 views::begin_frame(&ctx, &t);
                 e.ui(ui, frame, &t, &mut self.shared)
             }
             Mode::Pin(p) => {
-                let t = self.shared.tokens(ctx.system_theme());
+                let t = self.shared.tokens(system::appearance::system_theme(&ctx));
                 views::begin_frame(&ctx, &t);
                 p.ui(ui, frame, &t, &mut self.shared)
             }
             Mode::Notice(n) => {
-                let t = self.shared.tokens(ctx.system_theme());
+                let t = self.shared.tokens(system::appearance::system_theme(&ctx));
                 views::begin_frame(&ctx, &t);
                 n.ui(ui, &t)
             }
@@ -741,7 +744,11 @@ impl eframe::App for App {
             && !matches!(self.mode, Mode::Resident { .. })
         {
             if at.elapsed().as_secs_f32() < ui::kit::toast_seconds(msg) {
-                ui::kit::toast(&ctx, &self.shared.tokens(ctx.system_theme()), msg);
+                ui::kit::toast(
+                    &ctx,
+                    &self.shared.tokens(system::appearance::system_theme(&ctx)),
+                    msg,
+                );
                 ctx.request_repaint();
             } else {
                 self.shared.toast = None;
@@ -1020,7 +1027,7 @@ fn run() -> eframe::Result {
             let mut shared = Shared::new(settings, run_overrides(&args));
             shared.fonts.install(ctx);
             shared.logo.sync(ctx, &shared.settings.watermark);
-            views::begin_frame(ctx, &shared.tokens(ctx.system_theme()));
+            views::begin_frame(ctx, &shared.tokens(system::appearance::system_theme(ctx)));
             let mode = match args.launch {
                 Launch::Capture { .. } if instant_notice.is_some() => {
                     Mode::Notice(Box::new(instant_notice.take().unwrap()))
