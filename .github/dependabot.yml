@@ -1,0 +1,25 @@
+# Weekly pull requests for what goes stale on its own: the crates in Cargo.lock and the actions the
+# workflows pin by commit (a bump moves the commit and its version comment together). The Rust
+# toolchain, cargo-audit and cargo-packager are pinned by hand (see AGENTS.md).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # The GUI crates change their API on a 0.x minor and have to move together.
+      egui:
+        patterns: [egui, eframe, epaint_default_fonts]
+      # Patch bumps in one pull request; any other bump of a 0.x crate can break the build, so it
+      # gets a pull request of its own.
+      cargo-patch:
+        update-types: [patch]
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"

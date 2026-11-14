@@ -66,8 +66,9 @@ if [ "$run_linux" = 1 ]; then
       "$tag" bash -c '
         set -e
         tar -x -m -f -
-        rustup update stable --no-self-update > /dev/null 2>&1 || echo "rustup update failed; using the toolchain in the image"
-        rustup target add aarch64-apple-darwin > /dev/null 2>&1 || true
+        # The named volume may hold an older toolchain than the image pins.
+        rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy,rustfmt \
+          --target aarch64-apple-darwin --no-self-update > /dev/null || echo "rustup install failed (the toolchain below may not be the pinned one)"
         echo "== $(rustc --version)"
         echo "== linux: fmt";    cargo fmt --check
         echo "== linux: clippy"; cargo clippy --locked --all-targets -- -D warnings

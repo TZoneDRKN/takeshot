@@ -1,0 +1,47 @@
+# Known advisories (RustSec) against Cargo.lock. It runs when the lock or the manifest change, and
+# once a week, because an advisory can appear against a lock nobody touched. A vulnerability fails
+# the run; the warnings (an unmaintained or unsound crate that a dependency pulls in) are printed
+# in the log and do not.
+name: audit
+
+on:
+  pull_request:
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/audit.yml
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The checkout's rust-toolchain.toml names a Windows host, which rustup refuses on Linux; the exact
+  # version is the one build.yml pins (a test keeps them equal).
+  RUSTUP_TOOLCHAIN: 1.99.1
+  AUDIT_VERSION: 0.23.0
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Rust
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+
+      - name: cargo-audit (cached)
+        id: audit
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ env.AUDIT_VERSION }}-${{ runner.os }}
+
+      - name: cargo-audit (install)
+        if: steps.audit.outputs.cache-hit != 'true'
+        run: cargo install cargo-audit --version ${{ env.AUDIT_VERSION }} --locked
+
+      - name: Audit
+        run: cargo audit

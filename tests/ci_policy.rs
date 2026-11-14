@@ -1,9 +1,11 @@
-//! Two rules of the release's supply chain that nothing in the app would notice breaking:
+//! Three rules of the release's supply chain that nothing in the app would notice breaking:
 //!
 //! - every action the workflows use is pinned by the commit of a release, with its version in a
 //!   comment, so a moved tag cannot change what runs with the release's permissions;
 //! - every build, lint and test in CI and in the release scripts runs with `--locked`, so a
-//!   `Cargo.lock` out of step with `Cargo.toml` fails instead of quietly resolving newer crates.
+//!   `Cargo.lock` out of step with `Cargo.toml` fails instead of quietly resolving newer crates;
+//! - CI and the Linux container build with one exact Rust version, named the same in every place
+//!   that runs cargo, so a new Rust cannot break the lint with no change of ours.
 
 use std::fs;
 use std::path::PathBuf;
@@ -140,4 +142,58 @@ fn the_cargo_calls_are_found_whatever_the_spacing() {
     ] {
         assert!(!runs_cargo(no), "{no}");
     }
+}
+
+/// The first word after `key` on the first line of `file` that starts with it.
+fn version_after(file: &str, key: &str) -> String {
+    let text = read(file);
+    let line = text.lines().map(str::trim).find(|l| l.starts_with(key));
+    let line = line.unwrap_or_else(|| panic!("{file}: no line starts with `{key}`"));
+    let word = line[key.len()..].split_whitespace().next();
+    word.unwrap_or_else(|| panic!("{file}: nothing after `{key}`"))
+        .to_owned()
+}
+
+#[test]
+fn the_rust_toolchain_is_pinned_to_one_version_in_every_place() {
+    // A developer's `rust-toolchain.toml` follows stable (a host cannot go with an exact version).
+    let places = [
+        version_after(".github/workflows/build.yml", "RUSTUP_TOOLCHAIN:"),
+        version_after("scripts/ci-linux/Dockerfile", "RUSTUP_TOOLCHAIN="),
+        version_after("scripts/ci-linux/Dockerfile", "--default-toolchain"),
+    ];
+    let version = &places[0];
+    let numbers: Vec<_> = version.split('.').collect();
+    assert!(
+        numbers.len() == 3 && numbers.iter().all(|n| n.parse::<u32>().is_ok()),
+        "`{version}` is not an exact version: `stable` would move under us"
+    );
+    assert!(
+        places.iter().all(|p| p == version),
+        "the pins differ: {places:?}"
+    );
+}
+
+/// A workflow that runs cargo has no `rust-toolchain.toml` it can use (its host is Windows' and
+/// rustup refuses it elsewhere), so it names the pinned version itself, the one `build.yml` has.
+#[test]
+fn every_workflow_that_runs_cargo_names_the_pinned_toolchain() {
+    let pinned = version_after(".github/workflows/build.yml", "RUSTUP_TOOLCHAIN:");
+    let mut checked = 0;
+    for file in workflows() {
+        let runs = read(&file)
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with('#'))
+            .any(runs_cargo);
+        if runs {
+            assert_eq!(version_after(&file, "RUSTUP_TOOLCHAIN:"), pinned, "{file}");
+            checked += 1;
+        }
+    }
+    // build.yml and audit.yml; the others only call build.yml.
+    assert!(
+        checked >= 2,
+        "found only {checked} workflows that run cargo"
+    );
 }
