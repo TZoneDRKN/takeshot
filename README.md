@@ -98,7 +98,7 @@ Takeshot ships **TakeUI** and **Coral UI**, each light, dark or following the sy
 | `Esc` | Close the capture (while typing, only end the text) |
 | `Ctrl+0` / `Ctrl+1` / `Ctrl+=` / `Ctrl+-` | Editor: fit / 100 % / zoom in / zoom out |
 
-The global shortcuts can be changed in Settings > Shortcuts. If `PrtSc` opens the Windows Snipping Tool, turn off Settings > Accessibility > Keyboard > "Use the Print screen key to open screen capture", or turn on Takeshot's "Use Takeshot priority" (a keyboard hook that takes `PrtSc` first; some antivirus programs dislike it). On Wayland an app cannot grab global keys: create a desktop shortcut that runs `takeshot --capture` (or `takeshot --capture --full`).
+The global shortcuts can be changed in Settings > Shortcuts. If `PrtSc` opens the Windows Snipping Tool, turn off Settings > Accessibility > Keyboard > "Use the Print screen key to open screen capture", or turn on Takeshot's "Use Takeshot priority" (a keyboard hook that takes `PrtSc` first; some antivirus programs dislike it). On Wayland an app cannot grab global keys: create a desktop shortcut that runs `takeshot --capture` (or `takeshot --capture --full`), or use the right-click menu of Takeshot's launcher (deb and AppImage), which has Capture area, Capture full screen and Quit.
 
 ## Download
 
@@ -283,7 +283,7 @@ O Takeshot vem com **TakeUI** e **Coral UI**, cada um claro, escuro ou seguindo 
 | `Esc` | Fechar a captura (digitando, só encerra o texto) |
 | `Ctrl+0` / `Ctrl+1` / `Ctrl+=` / `Ctrl+-` | Editor: ajustar / 100 % / aproximar / afastar |
 
-Os atalhos globais mudam em Ajustes > Atalhos. Se o `PrtSc` abrir a Ferramenta de Captura do Windows, desligue em Configurações > Acessibilidade > Teclado > "Usar a tecla Print Screen para abrir a captura de tela", ou ligue "Usar prioridade do Takeshot" (um gancho de teclado que pega o `PrtSc` antes; alguns antivírus estranham). No Wayland um app não pega teclas globais: crie um atalho do desktop que rode `takeshot --capture` (ou `takeshot --capture --full`).
+Os atalhos globais mudam em Ajustes > Atalhos. Se o `PrtSc` abrir a Ferramenta de Captura do Windows, desligue em Configurações > Acessibilidade > Teclado > "Usar a tecla Print Screen para abrir a captura de tela", ou ligue "Usar prioridade do Takeshot" (um gancho de teclado que pega o `PrtSc` antes; alguns antivírus estranham). No Wayland um app não pega teclas globais: crie um atalho do desktop que rode `takeshot --capture` (ou `takeshot --capture --full`), ou use o menu de clique direito do lançador do Takeshot (deb e AppImage), que tem Capturar área, Capturar tela cheia e Sair.
 
 ## Download
 

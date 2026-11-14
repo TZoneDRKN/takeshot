@@ -12,6 +12,7 @@ scripts/linux-smoke.sh      # opens them in clean Ubuntu 24.04 containers and sa
 - installs the `.deb` with `apt` (which pulls its dependencies) and runs `takeshot --screenshot` on **X11** (Xvfb) and on **Wayland** (sway with no screen, `WLR_BACKENDS=headless`);
 - runs the AppImage on X11 in a container with no GTK installed, so it must carry its own libraries;
 - checks the resident's window (`scripts/container/resident-check.sh`, `scripts/linux-smoke.sh resident` for just this part): started in the tray with no window, then three times a second launch shows the window and the X (with "Minimize to tray" chosen) closes it, the resident outliving each one. On **Wayland** (sway, whose bar hosts the tray icons) it does that and closes the window with `swaymsg kill`; it then takes a capture on the sample screen and checks that the "Capture saved" notice reaches mako, the notification daemon, and opens no window. On **X11** (Xvfb with openbox) there is no tray host: the hidden start gives up after 30 s and shows the window, the X (`wmctrl -c`) only minimizes it, and a second launch brings it back. Both end with `takeshot --quit`: it must answer 0 and the resident must be gone (on Wayland the resident has no window at that point, on X11 its window is minimized), and a second `--quit` with none running answers 0 as well.
+- checks the launcher entry (`scripts/container/desktop-check.sh`, `scripts/linux-smoke.sh desktop` for just this part): the installed `takeshot.desktop` passes `desktop-file-validate`, lists its three actions, and on **X11** (Xvfb with openbox) each action's `Exec` line, run the way a launcher runs it, does what its name says: Capture area puts the capture window on screen, Capture full screen saves a picture, Quit closes a running resident; the main window's class matches the entry's `StartupWMClass`.
 
 The pictures land in `target/packages-linux/smoke`. Look at each one: the window drawn whole, in the theme asked for.
 
@@ -23,7 +24,8 @@ These need a desktop session and go through by hand before a release (a VM or a 
 2. `PrtSc` and `Shift+PrtSc` on X11; on Wayland, a desktop shortcut running `takeshot --capture`, and the capture through the desktop portal.
 3. Settings > General > "Start with the system": log out and in; the entry is `~/.config/autostart/Takeshot.desktop`.
 4. Quit from the tray (or Settings > General when there is no tray) closes the editors and pinned pictures too.
-5. On Wayland (KDE, GNOME): "Minimize to tray" leaves no entry in the taskbar, the tray's "Open" (and a second launch) brings the window back to the workspace you are on, and Copy or Save in a capture shows a notification in the desktop's corner while the screen goes back to normal at once.
+5. The launcher's right-click menu (GNOME's dash, KDE's task manager and application menu) shows Capture area, Capture full screen and Quit, in the language of the desktop, and each one works; windows of the running app group under the launcher's icon.
+6. On Wayland (KDE, GNOME): "Minimize to tray" leaves no entry in the taskbar, the tray's "Open" (and a second launch) brings the window back to the workspace you are on, and Copy or Save in a capture shows a notification in the desktop's corner while the screen goes back to normal at once.
 
 ## Last run
 
