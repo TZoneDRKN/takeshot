@@ -600,11 +600,36 @@ mod tests {
         // AppIndicator (Linux) reports no click on the icon, so the choice would do nothing there.
         let (mut home, mut shared) = Home::for_tests(vec![]);
         home.open(Page::Settings);
-        let (_, painted) = run(&mut home, &mut shared, (1160.0, 1600.0), true, vec![]);
+        let (_, painted, blocks) =
+            run_painted(&mut home, &mut shared, (1160.0, 1600.0), true, vec![]);
         let shown = |m: Msg| painted.iter().any(|(s, _)| every(m).contains(&s.as_str()));
         assert!(shown(Msg::OnCloseLabel), "the row above stays");
         assert!(shown(Msg::ShowNotice), "the row below stays");
         assert_eq!(shown(Msg::TrayClickLabel), !cfg!(target_os = "linux"));
+        // The rows that one system alone shows stay where they were.
+        assert_eq!(shown(Msg::ShowInDock), cfg!(target_os = "macos"));
+        assert_eq!(shown(Msg::QuitTakeshot), cfg!(target_os = "linux"));
+        // One line between two rows: the line of the hidden row goes with it, or the two lines
+        // of its neighbours would stack into a thick one.
+        let y = |m: Msg| {
+            painted_at(&painted, &every(m), |_| true)
+                .expect("a label")
+                .y
+        };
+        let (above, below) = (y(Msg::OnCloseLabel), y(Msg::ShowNotice));
+        let mut lines: Vec<f32> = blocks
+            .iter()
+            .map(|(r, _)| *r)
+            .filter(|r| r.height() == 1.0 && r.width() > 100.0)
+            .map(|r| r.top())
+            .filter(|top| *top > above && *top < below)
+            .collect();
+        lines.sort_by(f32::total_cmp);
+        lines.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+        assert!(!lines.is_empty(), "a line between the two rows");
+        for pair in lines.windows(2) {
+            assert!(pair[1] - pair[0] > 30.0, "two lines in a row: {lines:?}");
+        }
     }
 
     #[test]
