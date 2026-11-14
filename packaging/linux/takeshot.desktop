@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Takeshot
+Name={{name}}
 GenericName=Screenshot tool
 GenericName[pt]=Ferramenta de captura de tela
 {{#if comment}}

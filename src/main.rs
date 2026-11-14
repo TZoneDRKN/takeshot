@@ -1547,7 +1547,7 @@ mod tests {
         let lines = desktop_action(entry, id);
         let exec = lines.iter().find_map(|l| l.strip_prefix("Exec="));
         let exec = exec.unwrap_or_else(|| panic!("{id} has no Exec"));
-        let args = exec.strip_prefix("{{exec}}");
+        let args = exec.strip_prefix("{{exec}} ");
         let args = args.unwrap_or_else(|| panic!("{id} does not run the app itself"));
         args.split_whitespace().map(String::from).collect()
     }

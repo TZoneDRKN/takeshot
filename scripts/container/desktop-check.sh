@@ -28,6 +28,7 @@ echo "ok: the entry validates"
 if grep -q '{{' "$entry"; then fail "a template placeholder is left in the entry"; fi
 grep -qx 'Actions=capture-area;capture-full;quit;' "$entry" || fail "the entry does not list the three actions"
 grep -qx 'Exec=takeshot' "$entry" || fail "the entry does not run takeshot"
+grep -qx 'Name=Takeshot' "$entry" || fail "the entry is not named Takeshot"
 echo "ok: the entry is filled in and lists its actions"
 
 # The command line of an action, the way a launcher reads it from the entry.
@@ -41,10 +42,11 @@ sleep 1
 windows() { wmctrl -l | grep -c . || true; }
 alive() { pgrep -x takeshot > /dev/null; }
 
-# Capture area: the capture window comes up and nothing else (no main window).
+# Capture area: the capture window comes up (its title says capture, the main window's does not).
+capture_window() { wmctrl -l | grep -qE "Takeshot .+ captur"; }
 sh -c "$(exec_of capture-area)" > /tmp/takeshot.log 2>&1 &
-for _ in $(seq 50); do [ "$(windows)" -ge 1 ] && break; sleep 0.2; done
-[ "$(windows)" -ge 1 ] || fail "Capture area opened no window"
+for _ in $(seq 50); do capture_window && break; sleep 0.2; done
+capture_window || fail "Capture area opened no capture window"
 pkill -x takeshot || true
 for _ in $(seq 25); do alive || break; sleep 0.2; done
 echo "ok: Capture area puts the capture window on screen"
@@ -62,14 +64,11 @@ echo "ok: Capture full screen saves a picture"
 takeshot > /tmp/takeshot.log 2>&1 &
 for _ in $(seq 50); do [ "$(windows)" -ge 1 ] && break; sleep 0.2; done
 [ "$(windows)" -ge 1 ] || fail "the main window did not come up"
+# wmctrl -lx prints instance.class: the class is what follows the dot.
 class=$(wmctrl -lx | awk '{print $3}' | head -1)
-case "$class" in
-  *takeshot*) ;;
-  *) fail "the main window's class is \"$class\", not the entry's StartupWMClass" ;;
-esac
 want=$(sed -n 's/^StartupWMClass=//p' "$entry")
-[ "$want" = takeshot ] || fail "StartupWMClass is $want"
-echo "ok: the main window's class ($class) matches StartupWMClass=$want"
+[ "${class#*.}" = "$want" ] || fail "the main window's class is \"$class\", the entry says StartupWMClass=$want"
+echo "ok: the main window's class ($class) is StartupWMClass=$want"
 timeout 40 sh -c "$(exec_of quit)" > /tmp/quit.log 2>&1 && code=0 || code=$?
 [ "$code" = 0 ] || { cat /tmp/quit.log; fail "the Quit action exited with $code"; }
 for _ in $(seq 50); do alive || break; sleep 0.2; done
