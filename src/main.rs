@@ -859,6 +859,9 @@ fn run() -> eframe::Result {
     if args.quit {
         std::process::exit(quit_running_resident());
     }
+    // Before any window: they all take the app's id, so Windows groups them with the shortcut.
+    #[cfg(windows)]
+    system::app_id::set();
     let settings = settings::Settings::load();
     // The language first: window titles are set before the first frame.
     ui::i18n::set_lang(ui::i18n::resolve(
