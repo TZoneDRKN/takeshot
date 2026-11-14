@@ -1,6 +1,10 @@
 //! The shell scripts of the repo parse. Nothing in `cargo test` runs them, and a quote broken
 //! inside a `bash -c "..."` string shows only when someone runs the script: the Linux packages of a
 //! release did not build for a line that echoed the compiler's version.
+//!
+//! `bash -n` reads the outer script only: a mistake that still parses (an unescaped `$` or an
+//! unclosed quote inside the string handed to `bash -c`) shows when the script runs, so a release
+//! still starts with a real run of `scripts/linux-packages.sh` (`scripts/release-local.sh` does it).
 
 use std::fs;
 use std::path::PathBuf;
@@ -10,8 +14,13 @@ fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// The scripts, as `/` paths from the repo's root: every `*.sh` under `scripts/` and every file in
-/// `.githooks/` (hooks have no extension).
+fn starts_with_shebang(relative: &str) -> bool {
+    fs::read(root().join(relative)).is_ok_and(|bytes| bytes.starts_with(b"#!"))
+}
+
+/// The scripts, as `/` paths from the repo's root: every `*.sh` under `scripts/` and every hook of
+/// `.githooks/` (a hook has no extension, so it is a file that starts with `#!`; an editor's swap
+/// file or a `.DS_Store` is not one).
 fn scripts() -> Vec<String> {
     fn walk(dir: &str, hooks: bool, out: &mut Vec<String>) {
         let mut entries: Vec<_> = fs::read_dir(root().join(dir))
@@ -24,7 +33,7 @@ fn scripts() -> Vec<String> {
             let relative = format!("{dir}/{name}");
             if e.file_type().expect("a file type").is_dir() {
                 walk(&relative, hooks, out);
-            } else if hooks || name.ends_with(".sh") {
+            } else if name.ends_with(".sh") || (hooks && starts_with_shebang(&relative)) {
                 out.push(relative);
             }
         }
@@ -53,9 +62,14 @@ fn gnu_bash() -> Option<String> {
 #[test]
 fn every_shell_script_parses() {
     let found = scripts();
-    assert!(found.len() >= 10, "found {found:?}");
+    assert!(
+        found.contains(&"scripts/linux-packages.sh".to_string()),
+        "the walk found {found:?}"
+    );
     let Some(bash) = gnu_bash() else {
-        if !cfg!(windows) {
+        // Only a Windows machine at a desk may go without: CI says it is CI, and a lane that
+        // lost its bash must not turn green by checking nothing.
+        if !cfg!(windows) || std::env::var_os("CI").is_some() {
             panic!("bash is missing: the scripts are not checked");
         }
         eprintln!("no GNU bash here: the scripts are checked on Linux and macOS");
