@@ -16,6 +16,24 @@ const SCRIPTS: [&str; 3] = [
     "scripts/release-local.sh",
 ];
 
+/// Whether a line runs one of the cargo subcommands that resolve dependencies: the word `cargo`
+/// (or `cargo.exe`), an optional `+toolchain`, then the subcommand, whatever the spacing.
+fn runs_cargo(line: &str) -> bool {
+    const RESOLVING: [&str; 9] = [
+        "build", "check", "clippy", "test", "install", "run", "doc", "bench", "fetch",
+    ];
+    let mut words = line.split_whitespace();
+    while let Some(word) = words.next() {
+        if word == "cargo" || word == "cargo.exe" {
+            let next = words.clone().find(|w| !w.starts_with('+'));
+            if next.is_some_and(|sub| RESOLVING.contains(&sub)) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn read(relative: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative);
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
@@ -31,7 +49,7 @@ fn workflows() -> Vec<String> {
                 .to_string_lossy()
                 .into_owned()
         })
-        .filter(|n| n.ends_with(".yml"))
+        .filter(|n| n.ends_with(".yml") || n.ends_with(".yaml"))
         .map(|n| format!(".github/workflows/{n}"))
         .collect();
     names.sort();
@@ -43,7 +61,7 @@ fn every_action_is_pinned_by_the_commit_of_a_release() {
     let mut pinned = 0;
     for file in workflows() {
         for (n, line) in read(&file).lines().enumerate() {
-            let line = line.trim().trim_start_matches("- ");
+            let line = line.trim().trim_start_matches(['-', ' ']);
             let Some(used) = line.strip_prefix("uses:") else {
                 continue;
             };
@@ -84,10 +102,7 @@ fn every_build_lint_and_test_of_the_release_path_is_locked() {
             if line.starts_with('#') || line.starts_with("step ") || line.starts_with("die ") {
                 continue;
             }
-            let runs_cargo = ["build", "clippy", "test", "install"]
-                .iter()
-                .any(|verb| line.contains(&format!("cargo {verb}")));
-            if runs_cargo {
+            if runs_cargo(line) {
                 assert!(
                     line.contains("--locked"),
                     "{file}:{}: `{line}` has no --locked",
@@ -101,4 +116,28 @@ fn every_build_lint_and_test_of_the_release_path_is_locked() {
         calls >= 10,
         "found only {calls} cargo calls: did the files move?"
     );
+}
+
+#[test]
+fn the_cargo_calls_are_found_whatever_the_spacing() {
+    for yes in [
+        "cargo build --release",
+        "cargo  test",
+        "cargo +nightly clippy --all-targets",
+        "cargo.exe check",
+        r#"echo "== linux: clippy"; cargo clippy --all-targets"#,
+        "run windows-build cargo build --release",
+    ] {
+        assert!(runs_cargo(yes), "{yes}");
+    }
+    for no in [
+        "cargo fmt --check",
+        "cargo packager --release --formats deb",
+        "command -v cargo-packager > /dev/null",
+        "cargo-packager --version",
+        "export CARGO_HOME=/opt/cargo",
+        "- name: Lint and test",
+    ] {
+        assert!(!runs_cargo(no), "{no}");
+    }
 }
