@@ -633,6 +633,11 @@ impl eframe::App for App {
         system::mac_titlebar::show_in_dock(self.shared.settings.show_in_dock);
         self.pump(ctx);
         self.serve_standby(ctx);
+        // `ui` does not run while the Linux main window is minimized, so its X is read here.
+        let tray = self.tray_shown();
+        if let Mode::Resident { shell, .. } = &mut self.mode {
+            shell.read_close_request(ctx, tray, &self.shared);
+        }
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {

@@ -437,6 +437,30 @@ impl Shell {
         }
     }
 
+    /// The user's X on the main window: the close prompt, or what the setting says. Where the
+    /// main window is a child of the invisible host (Windows, macOS) `ui` reads it; where it is the
+    /// root (Linux) `App::logic` does, through `read_close_request`, because `ui` does not run
+    /// while the window is minimized and a close from the taskbar would be lost: the window would
+    /// just go, whatever the setting says.
+    fn handle_close_request(&mut self, ctx: &egui::Context, tray_shown: bool, shared: &Shared) {
+        let requested = ctx.input_for(self.main_viewport(), |i| i.viewport().close_requested());
+        if requested && self.intercepts_close() {
+            ctx.send_viewport_cmd(Cmd::CancelClose);
+            match on_x(shared.settings.on_close) {
+                XAction::Ask => self.close_prompt = Some(true),
+                XAction::Hide => self.hide(ctx, tray_shown),
+                XAction::Quit => self.quit(ctx),
+            }
+        }
+    }
+
+    /// `handle_close_request` for the main window that is the root (Linux), from `App::logic`.
+    pub fn read_close_request(&mut self, ctx: &egui::Context, tray_shown: bool, shared: &Shared) {
+        if !self.hosted {
+            self.handle_close_request(ctx, tray_shown, shared);
+        }
+    }
+
     /// Draws the resident's windows for this frame. `ui` is the root's: the host on Windows and
     /// macOS, the main window on Linux.
     pub fn ui(
@@ -519,13 +543,8 @@ impl Shell {
         shared: &mut Shared,
     ) {
         let ctx = ui.ctx().clone();
-        if ui.input(|i| i.viewport().close_requested()) && self.intercepts_close() {
-            ctx.send_viewport_cmd(Cmd::CancelClose);
-            match on_x(shared.settings.on_close) {
-                XAction::Ask => self.close_prompt = Some(true),
-                XAction::Hide => self.hide(&ctx, resident.tray_shown()),
-                XAction::Quit => self.quit(&ctx),
-            }
+        if self.hosted {
+            self.handle_close_request(&ctx, resident.tray_shown(), shared);
         }
         let t = shared.tokens(crate::system::appearance::system_theme(&ctx));
         crate::views::begin_frame(&ctx, &t);

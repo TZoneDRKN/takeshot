@@ -118,6 +118,19 @@ else
   for _ in $(seq 25); do minimized || break; sleep 0.2; done
   minimized && fail "a second launch did not bring the minimized window back"
   echo "ok: a second launch brought the window back"
+  # The X on a window that is already minimized (closed from the taskbar, say): `ui` does not run
+  # for a minimized window, so the request used to be lost and the window just went, whatever the
+  # setting says (Minimize here, so it must stay, minimized).
+  id=$(wmctrl -l | awk '/ Takeshot$/ {print $1; exit}')
+  xdotool windowminimize "$((id))"
+  for _ in $(seq 25); do minimized && break; sleep 0.2; done
+  minimized || fail "could not minimize the window to set up the close"
+  wmctrl -ic "$id"
+  sleep 3
+  [ "$(count)" = 1 ] || fail "the X on a minimized window destroyed it instead of following the setting"
+  alive || fail "the resident left with the X on a minimized window"
+  minimized || fail "the X on a minimized window did not leave it minimized"
+  echo "ok: the X on a minimized window follows the setting, the window stays"
 fi
 # `--quit` asks the resident to quit the way the tray's Quit does and answers 0 once it is going; with
 # none running there is nothing to quit and it answers 0 as well. The window state differs by mode: on
