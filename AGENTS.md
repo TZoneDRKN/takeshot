@@ -25,7 +25,7 @@ Keeping it current is part of every visible change, in the same pull request:
 - The app is the truth. Draw from its render (`--screenshot`, with `--page`), never from memory, and compare the finished frame with that render: a frame that disagrees with the app is a bug in the file.
 - A visual with no precedent in the kit is drawn first on a dated page ("Proposta (AAAA-MM-DD)") and approved before the code. When the app ships it, its frames move to the "Telas" pages and the proposal page goes.
 - A change that reaches the kit also updates the matching component frame in "Sistema de design".
-- The frames draw the Windows and Linux window. A control the app shows only on macOS (the Dock row in Ajustes > General) stays out of them, and its check is in [docs/testing-macos.md](docs/testing-macos.md).
+- The frames of the screens draw the Windows window. A control that only macOS shows (the Dock row in Ajustes > General) or only Linux shows (the Quit row in the same group) stays out of them; a row that Linux hides is in them (the "Clique no ícone da bandeja" row, since AppIndicator reports no click on the icon). The macOS check is in [docs/testing-macos.md](docs/testing-macos.md), the Linux one in [docs/testing-linux.md](docs/testing-linux.md).
 
 ## Layout
 
