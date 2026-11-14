@@ -568,6 +568,28 @@ SectionEnd
   nsis_tauri_utils::FindProcess "${MAINBINARYNAME}.exe"
   Pop $R0
   ${If} $R0 = 0
+      ; Takeshot: ask it to quit the way its tray's Quit does before anything is killed, so an
+      ; editor with unsaved changes asks its user first. Exit codes of `--quit`: 0 it quit (or none
+      ; ran), 1 a window's user cancelled, 2 no answer in 30 s. An older Takeshot reads --quit as a
+      ; second launch and stays running, which falls through to the kill below, as before. The
+      ; answer comes as the resident drops its connection, a moment before its windows are gone, so
+      ; the processes get up to 3 s to leave.
+      ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --quit' $R1
+      ${If} $R1 = 1
+        Goto cancel
+      ${EndIf}
+      StrCpy $R2 0
+      quit_wait:
+        nsis_tauri_utils::FindProcess "${MAINBINARYNAME}.exe"
+        Pop $R0
+        ${If} $R0 != 0
+          Goto app_check_done
+        ${EndIf}
+        IntOp $R2 $R2 + 1
+        ${If} $R2 <= 6
+          Sleep 500
+          Goto quit_wait
+        ${EndIf}
       IfSilent kill 0
       ${IfThen} $PassiveMode != 1 ${|} MessageBox MB_OKCANCEL "$(appRunningOkKill)" IDOK kill IDCANCEL cancel ${|}
       kill:
