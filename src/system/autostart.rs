@@ -42,6 +42,8 @@ fn desktop_exec_path(path: &str) -> String {
                 quoted.push(c);
             }
             '\\' => quoted.push_str(r"\\\\"),
+            // A raw line break would end the `Exec` line; the file format has an escape for it.
+            '\n' => quoted.push_str(r"\n"),
             c => quoted.push(c),
         }
     }
@@ -51,7 +53,9 @@ fn desktop_exec_path(path: &str) -> String {
 
 /// Whether the text of an autostart entry would start at login. The desktop (and tools such as
 /// GNOME Tweaks) turn an entry off and leave the file, with `Hidden=true` or
-/// `X-GNOME-Autostart-enabled=false` in the `[Desktop Entry]` group.
+/// `X-GNOME-Autostart-enabled=false` in the `[Desktop Entry]` group. The values are read the way
+/// GLib reads a boolean (`true` or `1`, `false` or `0`, in lower case), since that is what decides
+/// whether the desktop starts the entry.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn desktop_entry_is_on(text: &str) -> bool {
     let mut in_entry = false;
@@ -59,16 +63,18 @@ fn desktop_entry_is_on(text: &str) -> bool {
         if line.starts_with('[') {
             in_entry = line == "[Desktop Entry]";
         } else if let Some((key, value)) = line.split_once('=').filter(|_| in_entry) {
-            let value = value.trim().to_ascii_lowercase();
-            match key.trim() {
-                "Hidden" if value == "true" => return false,
-                "X-GNOME-Autostart-enabled" if value == "false" => return false,
+            match (key.trim(), value.trim()) {
+                ("Hidden", "true" | "1") => return false,
+                ("X-GNOME-Autostart-enabled", "false" | "0") => return false,
                 _ => {}
             }
         }
     }
     true
 }
+
+/// The name of the login entry (`~/.config/autostart/Takeshot.desktop`, the Run value, the plist).
+const APP_NAME: &str = "Takeshot";
 
 /// The login entry for this executable; nothing changes on the system until `set_autostart`.
 pub fn autostart() -> Result<AutoLaunch, String> {
@@ -82,7 +88,7 @@ pub fn autostart() -> Result<AutoLaunch, String> {
     #[cfg(not(any(windows, target_os = "linux")))]
     let path = exe.to_string_lossy().into_owned();
     let mut b = AutoLaunchBuilder::new();
-    b.set_app_name("Takeshot")
+    b.set_app_name(APP_NAME)
         .set_app_path(&path)
         .set_args(&["--minimized"]);
     #[cfg(windows)]
@@ -114,9 +120,8 @@ pub fn autostart_enabled() -> bool {
 /// Where `auto-launch` writes the entry: `~/.config/autostart/<name>.desktop`.
 #[cfg(target_os = "linux")]
 fn entry_file() -> Option<PathBuf> {
-    let name = autostart().ok()?.get_app_name().to_owned();
     let dir = dirs::home_dir()?.join(".config/autostart");
-    Some(dir.join(format!("{name}.desktop")))
+    Some(dir.join(format!("{APP_NAME}.desktop")))
 }
 
 #[cfg(test)]
@@ -136,11 +141,25 @@ mod tests {
     }
 
     /// What a desktop entry reader makes of an `Exec` value, from the Desktop Entry Specification:
-    /// the file's string escapes first (`\\` is one backslash), then the arguments, split on spaces
-    /// outside double quotes, where a backslash escapes the next character, and `%%` is a percent.
-    /// It is the oracle for `desktop_exec_path`, which must not be checked against itself.
+    /// the file's string escapes first (only `\s`, `\n`, `\t`, `\r` and `\\` exist), then the
+    /// arguments, split on spaces outside double quotes, where a backslash escapes the next
+    /// character, and `%%` is a percent. It is the oracle for `desktop_exec_path`, which must not
+    /// be checked against itself.
     fn exec_arguments(value: &str) -> Vec<String> {
-        let value = value.replace("\\\\", "\\");
+        let mut unescaped = String::new();
+        let mut raw = value.chars();
+        while let Some(c) = raw.next() {
+            match (c, if c == '\\' { raw.next() } else { None }) {
+                ('\\', Some('\\')) => unescaped.push('\\'),
+                ('\\', Some('s')) => unescaped.push(' '),
+                ('\\', Some('n')) => unescaped.push('\n'),
+                ('\\', Some('t')) => unescaped.push('\t'),
+                ('\\', Some('r')) => unescaped.push('\r'),
+                ('\\', other) => panic!("no such string escape {other:?} in {value}"),
+                (c, _) => unescaped.push(c),
+            }
+        }
+        let value = unescaped;
         let (mut args, mut current, mut quoted, mut started) =
             (vec![], String::new(), false, false);
         let mut chars = value.chars();
@@ -175,7 +194,10 @@ mod tests {
                     }
                     started = false;
                 }
-                c => (current.push(c), started = true).1,
+                c => {
+                    current.push(c);
+                    started = true;
+                }
             }
         }
         assert!(!quoted, "an unclosed quote in {value}");
@@ -199,9 +221,47 @@ mod tests {
             "/opt/100% sure/takeshot",
             "/opt/it's mine/ta keshot (1)",
             "/opt/tab\there/takeshot",
+            "/opt/line\nbreak/takeshot",
         ] {
             let line = format!("{} --minimized", desktop_exec_path(path));
+            assert!(
+                !line.contains('\n'),
+                "a raw line break would end the Exec line: {line}"
+            );
             assert_eq!(exec_arguments(&line), [path, "--minimized"], "{line}");
+        }
+    }
+
+    /// Each reserved character of the specification, on its own in a path with nothing else that
+    /// would call for quotes, so a character dropped from the list cannot hide behind another.
+    #[test]
+    fn every_reserved_character_alone_calls_for_quotes() {
+        let reserved = [
+            ' ', '\t', '\n', '"', '\'', '\\', '>', '<', '~', '|', '&', ';', '$', '*', '?', '#',
+            '(', ')', '`',
+        ];
+        for c in reserved {
+            let path = format!("/opt/a{c}b/takeshot");
+            let exec = desktop_exec_path(&path);
+            assert!(
+                exec.starts_with('"') && exec.ends_with('"'),
+                "{c:?} is not quoted: {exec}"
+            );
+            let line = format!("{exec} --minimized");
+            assert_eq!(
+                exec_arguments(&line),
+                [path.as_str(), "--minimized"],
+                "{line}"
+            );
+        }
+        for c in [
+            '-', '_', '.', '+', ',', ':', '=', '@', '[', ']', '{', '}', '%', '!', '^',
+        ] {
+            let path = format!("/opt/a{c}b/takeshot");
+            assert!(
+                !desktop_exec_path(&path).starts_with('"'),
+                "{c:?} needs no quotes"
+            );
         }
     }
 
@@ -217,17 +277,30 @@ mod tests {
             "Hidden=false\nX-GNOME-Autostart-enabled=true\n"
         )));
         assert!(!desktop_entry_is_on(&entry("Hidden=true\n")));
-        assert!(!desktop_entry_is_on(&entry("Hidden = True\n")));
+        assert!(!desktop_entry_is_on(&entry("Hidden = true\n")));
+        assert!(!desktop_entry_is_on(&entry("Hidden=1\n")));
         assert!(!desktop_entry_is_on(&entry(
             "X-GNOME-Autostart-enabled=false\n"
         )));
         assert!(!desktop_entry_is_on(&entry(
+            "X-GNOME-Autostart-enabled=0\n"
+        )));
+        // GLib reads a boolean in lower case only, and it decides what the desktop starts.
+        assert!(desktop_entry_is_on(&entry("Hidden=True\n")));
+        assert!(desktop_entry_is_on(&entry(
             "X-GNOME-Autostart-enabled=FALSE\n"
         )));
-        // Only the `[Desktop Entry]` group counts.
+        // Only the `[Desktop Entry]` group counts, and only a line that is not a comment.
         assert!(desktop_entry_is_on(&entry(
             "[Desktop Action x]\nHidden=true\n"
         )));
+        assert!(desktop_entry_is_on(&entry("# Hidden=true\n")));
+        assert!(desktop_entry_is_on(
+            "Hidden=true\n[Desktop Entry]\nName=T\n"
+        ));
+        assert!(!desktop_entry_is_on(
+            "[Desktop Entry]\nName=T\n[Desktop Action x]\nName=A\n[Desktop Entry]\nHidden=true\n"
+        ));
     }
 
     /// The entry on disk, in a scratch home: written with the quoted path, read back as on, off
@@ -243,17 +316,30 @@ mod tests {
             let home =
                 std::env::temp_dir().join(format!("takeshot-autostart-{}", std::process::id()));
             std::fs::create_dir_all(&home).unwrap();
-            let status = std::process::Command::new(std::env::current_exe().unwrap())
+            let run = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", ME, "--test-threads=1"])
                 .env("TAKESHOT_TEST_HOME", &home)
                 .env("HOME", &home)
+                // The library writes `~/.config/autostart` whatever this says.
+                .env("XDG_CONFIG_HOME", home.join("elsewhere"))
                 .env("APPIMAGE", image)
-                .status()
+                .output()
                 .unwrap();
-            std::fs::remove_dir_all(&home).unwrap();
-            assert!(status.success(), "the child run failed");
+            let _ = std::fs::remove_dir_all(&home);
+            let said = String::from_utf8_lossy(&run.stdout);
+            // `--exact` with a name that matches nothing runs no test and still exits 0.
+            let ran = run.status.success() && said.contains("1 passed");
+            assert!(
+                ran,
+                "the child run failed:\n{said}\n{}",
+                String::from_utf8_lossy(&run.stderr)
+            );
             return;
         };
+        assert_eq!(
+            dirs::home_dir().as_deref(),
+            Some(std::path::Path::new(&home))
+        );
         let file = std::path::Path::new(&home).join(".config/autostart/Takeshot.desktop");
         assert!(!autostart_enabled(), "nothing is written yet");
         set_autostart(true).unwrap();
@@ -275,7 +361,8 @@ mod tests {
     #[test]
     fn autostart_starts_minimized_as_takeshot() {
         let a = autostart().expect("autostart entry");
-        assert_eq!(a.get_app_name(), "Takeshot");
+        assert_eq!(a.get_app_name(), APP_NAME);
+        assert_eq!(APP_NAME, "Takeshot");
         assert_eq!(a.get_args(), ["--minimized".to_string()]);
     }
 
