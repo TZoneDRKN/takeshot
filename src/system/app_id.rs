@@ -1,15 +1,17 @@
 //! The identity Windows groups the app's taskbar buttons under: one AppUserModelID for every
-//! process (the resident, the editors, the pinned pictures, the capture), the one the installer
-//! writes into the shortcuts it makes.
+//! process (the resident, the editors, the pinned pictures, the capture), the one the setup
+//! program writes into the shortcuts it makes.
 
-/// The packager's `identifier` (`[package.metadata.packager]` in `Cargo.toml`): the installer
-/// writes it into the desktop and Start menu shortcuts as their AppUserModelID.
+/// The packager's `identifier` (`[package.metadata.packager]` in `Cargo.toml`). The NSIS setup
+/// writes it into its desktop and Start menu shortcuts as their AppUserModelID, and the MSI into
+/// its Start menu shortcut only (cargo-packager's template leaves the desktop one without).
 #[cfg_attr(not(windows), allow(dead_code))]
 pub const APP_ID: &str = "br.com.takeflow.takeshot";
 
-/// Names this process as that app. Without it Windows derives an id from the executable's path
-/// for each process, so a window of an editor or a pinned picture gets a button of its own,
-/// apart from the shortcut the user pinned. Called before any window exists.
+/// Names this process as that app. Without it a process the shell did not start from a shortcut
+/// has the id Windows derives from the executable's path, which is not the shortcut's id, so the
+/// window of an editor or a pinned picture can get a button apart from the pinned shortcut.
+/// Called before any window exists.
 #[cfg(windows)]
 pub fn set() {
     use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
@@ -57,7 +59,7 @@ mod tests {
             unsafe { CoTaskMemFree(id as *const _) };
             Some(text)
         };
-        assert_eq!(current(), None, "a test process starts with no explicit id");
+        assert_ne!(current().as_deref(), Some(APP_ID), "the id is not set yet");
         set();
         assert_eq!(current().as_deref(), Some(APP_ID));
     }
