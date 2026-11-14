@@ -24,8 +24,8 @@ on:
         default: ''
 
 env:
-  # The version rust-toolchain.toml and the Dockerfile of scripts/ci-linux pin too (a test keeps
-  # them equal); a newer Rust cannot break the lint with no change of ours.
+  # The version the Dockerfile of scripts/ci-linux and audit.yml pin too (a test keeps them equal), so a
+  # newer Rust cannot break the lint with no change of ours. rust-toolchain.toml still follows stable.
   RUSTUP_TOOLCHAIN: 1.99.1
   CARGO_TERM_COLOR: always
   PACKAGER_VERSION: 0.11.8

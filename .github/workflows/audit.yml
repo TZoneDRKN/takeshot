@@ -18,6 +18,9 @@ permissions:
   contents: read
 
 env:
+  # The checkout's rust-toolchain.toml names a Windows host, which rustup refuses on Linux; the exact
+  # version is the one build.yml pins (a test keeps them equal).
+  RUSTUP_TOOLCHAIN: 1.99.1
   AUDIT_VERSION: 0.23.0
 
 jobs:
@@ -25,6 +28,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Rust
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
 
       - name: cargo-audit (cached)
         id: audit
