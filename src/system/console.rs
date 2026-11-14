@@ -4,6 +4,9 @@
 //! unless the shell redirected the output, so `say` borrows the parent's console in that case. A
 //! shell does not wait for a GUI program, so cmd and PowerShell show the line after the prompt came
 //! back; a pipe (`takeshot --version | more`) or `start /wait` keeps them in order.
+//!
+//! `cargo test` cannot reach the borrowed console (the debug build is a console program with its
+//! own standard output): `scripts/windows-version-check.ps1` runs the release exe in a real one.
 
 use std::io::Write;
 
