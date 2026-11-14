@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Linux packages (.deb and .AppImage) and the tar.gz, built in the CI image (scripts/ci-linux)
+# The Linux packages (.deb and .AppImage) and the tar.gz (scripts/linux-tarball.sh), built in the CI image (scripts/ci-linux)
 # from a commit, into target/packages-linux. Also prints the shared-library packages the binary
 # needs (dpkg-shlibdeps), for [package.metadata.packager.deb] depends.
 #
@@ -43,6 +43,6 @@ git archive --format=tar "$sha" |
       version=\$(grep -m1 '^version' Cargo.toml | cut -d'\"' -f2)
       cp target/packages/*.deb \"/out/takeshot-\$version-linux-x86_64.deb\"
       cp target/packages/*.AppImage \"/out/takeshot-\$version-linux-x86_64.AppImage\"
-      tar -czf \"/out/takeshot-\$version-linux-x86_64.tar.gz\" -C target/release takeshot -C /src LICENSE THIRD_PARTY_NOTICES.md
+      bash scripts/linux-tarball.sh target/packages/*.deb target/release/takeshot \"/out/takeshot-\$version-linux-x86_64.tar.gz\"
       ls -la /out
     "
