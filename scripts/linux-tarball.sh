@@ -11,7 +11,7 @@ out=$(cd "$(dirname "$out")" && pwd)/$(basename "$out")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 dpkg-deb --fsys-tarfile "$deb" |
-  tar -x -C "$work" ./usr/share/applications/takeshot.desktop ./usr/share/icons/hicolor/256x256/apps/takeshot.png
+  tar -x -C "$work" --wildcards '*usr/share/applications/takeshot.desktop' '*usr/share/icons/hicolor/256x256/apps/takeshot.png'
 cp "$binary" "$work/takeshot"
 mv "$work/usr/share/applications/takeshot.desktop" "$work/takeshot.desktop"
 mv "$work/usr/share/icons/hicolor/256x256/apps/takeshot.png" "$work/takeshot.png"
