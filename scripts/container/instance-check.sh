@@ -8,7 +8,7 @@
 # used to take from USER). It has to find nothing to quit, and alice's resident must keep running.
 # Then the folder the socket lives in: `$XDG_RUNTIME_DIR/takeshot`, mode 0700 and hers, or
 # `/tmp/takeshot-<uid>` with no XDG_RUNTIME_DIR; and a folder bob made there first, open to
-# everyone, is not used (the resident runs with no single instance and says so in its log).
+# everyone, is not used (the resident runs with no single instance and says so on standard error).
 set -eu
 
 fail() {
@@ -55,13 +55,21 @@ dir=/run/user/$alice/takeshot
 ls "$dir" | grep -q '\.sock$' || fail "no socket in $dir"
 echo "ok: the socket is in $dir, 0700 and alice's"
 
-# alice's own --quit still works, and the socket goes with the resident.
+# alice's own --quit still works. A process that exits does not unlink its socket file, so the next
+# resident finds a dead one in the folder and takes its place.
 as alice timeout 40 takeshot --quit > /tmp/alice-quit.log 2>&1 && code=0 || code=$?
 [ "$code" = 0 ] || { cat /tmp/alice-quit.log; fail "alice's --quit exited with $code"; }
 for _ in $(seq 50); do alive || break; sleep 0.2; done
 ! alive || fail "alice's --quit answered but her resident still runs"
-! ls "$dir" 2> /dev/null | grep -q '\.sock$' || fail "the socket stayed behind after the quit"
-echo "ok: alice's own --quit closes it and leaves no socket behind"
+echo "ok: alice's own --quit closes her resident"
+as alice DISPLAY=:99 takeshot --minimized --lang en > /tmp/alice.log 2>&1 &
+for _ in $(seq 50); do alive && break; sleep 0.2; done
+alive || fail "the next resident did not start over the file the last one left"
+sleep 2
+as alice timeout 40 takeshot --quit > /dev/null 2>&1 || true
+for _ in $(seq 50); do alive || break; sleep 0.2; done
+! alive || fail "the next resident did not answer its --quit: it was not the one on the socket"
+echo "ok: the next resident takes over a socket file left behind, and answers"
 
 # No XDG_RUNTIME_DIR: the folder is /tmp/takeshot-<uid>, again 0700 and hers.
 runuser -u alice -- env -u XDG_RUNTIME_DIR HOME=/home/alice DISPLAY=:99 takeshot --minimized --lang en > /tmp/alice.log 2>&1 &
@@ -84,8 +92,10 @@ for _ in $(seq 50); do alive && break; sleep 0.2; done
 alive || fail "alice's resident did not start beside bob's folder"
 sleep 2
 [ -z "$(ls -A "/tmp/takeshot-$alice")" ] || fail "alice put something in bob's folder"
-grep -q 'running without single instance' /home/alice/.local/state/takeshot/logs/takeshot-resident.log ||
-  fail "the log does not say the resident runs without single instance"
-echo "ok: a folder alice does not own is left alone, and the log says so"
+# The claim comes before the log file is opened (a second launch never touches the resident's file),
+# so the line is on standard error.
+grep -q 'running without single instance: the socket folder is not private' /tmp/alice.log ||
+  fail "the resident does not say it runs without single instance"
+echo "ok: a folder alice does not own is left alone, and the resident says so"
 pkill -u alice -x takeshot || true
 echo "ALL OK"
