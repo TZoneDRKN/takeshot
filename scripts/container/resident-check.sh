@@ -91,6 +91,8 @@ if [ "$mode" = wayland ]; then
 
   # The copy and save notice is the desktop's: no window, and the notification exists.
   mako > /tmp/mako.log 2>&1 &
+  # What the notice sends to the desktop, to read its action's label.
+  dbus-monitor "interface='org.freedesktop.Notifications',member='Notify'" > /tmp/notify.mon 2>&1 &
   sleep 1
   takeshot --capture --full --sample --lang en > /tmp/capture.log 2>&1 &
   capture=$!
@@ -102,8 +104,21 @@ if [ "$mode" = wayland ]; then
     fail "no \"Capture saved\" notification reached the desktop"
   }
   ls /tmp/caps/*.png > /dev/null 2>&1 || fail "the capture was not saved"
+  grep -q 'string "Open folder"' /tmp/notify.mon || {
+    cat /tmp/notify.mon
+    fail "the notice's action is not labelled \"Open folder\" in English"
+  }
   wait "$capture" || true
-  echo "ok: the saved notice is a desktop notification, with no window"
+  # The label follows the language, as the rest of the app does.
+  takeshot --capture --full --sample --lang pt > /tmp/capture-pt.log 2>&1 &
+  capture=$!
+  sleep 3
+  grep -q 'string "Abrir pasta"' /tmp/notify.mon || {
+    cat /tmp/notify.mon
+    fail "the notice's action is not labelled \"Abrir pasta\" in Portuguese"
+  }
+  wait "$capture" || true
+  echo "ok: the saved notice is a desktop notification, with no window, its action labelled in the language"
 else
   # No panel shows a tray icon here: after TRAY_WAIT the hidden start shows its window.
   wait_for 1 45 || fail "a hidden start with no tray never showed its window"
