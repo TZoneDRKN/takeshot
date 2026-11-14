@@ -52,7 +52,21 @@ pub enum XAction {
 
 /// winit uses Wayland when the session has one.
 pub fn on_wayland() -> bool {
-    cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()
+    cfg!(target_os = "linux")
+        && wayland_session(
+            std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
+            std::env::var("WAYLAND_SOCKET").ok().as_deref(),
+        )
+}
+
+/// The rule winit 0.30 applies before it opens a window (`platform_impl/linux/mod.rs`): a
+/// `WAYLAND_DISPLAY` or `WAYLAND_SOCKET` that is set and not empty means Wayland, even when
+/// `DISPLAY` is there too; an empty one counts as unset.
+fn wayland_session(display: Option<&str>, socket: Option<&str>) -> bool {
+    [display, socket]
+        .into_iter()
+        .flatten()
+        .any(|v| !v.is_empty())
 }
 
 /// What the close prompt stores: the answer (Hide or Quit), only with "Remember my choice"
@@ -256,6 +270,20 @@ pub fn wants_hook(settings: &Settings) -> bool {
 mod tests {
     use super::*;
     use crate::system::settings::{OnClose, TrayClick};
+
+    #[test]
+    fn a_wayland_session_is_what_winit_takes_for_one() {
+        assert!(wayland_session(Some("wayland-0"), None));
+        assert!(wayland_session(None, Some("7")));
+        assert!(wayland_session(Some("wayland-0"), Some("")));
+        // An empty variable is unset for winit, which then opens the X11 window.
+        assert!(!wayland_session(Some(""), None));
+        assert!(!wayland_session(None, Some("")));
+        assert!(!wayland_session(Some(""), Some("")));
+        assert!(!wayland_session(None, None));
+        // `WAYLAND_DISPLAY` empty does not hide a `WAYLAND_SOCKET` that is there.
+        assert!(wayland_session(Some(""), Some("7")));
+    }
 
     #[test]
     fn the_prtsc_hook_needs_the_shortcuts_on() {
