@@ -70,6 +70,8 @@ appdata-paths = ["$APPDATA/takeshot", "$LOCALAPPDATA/takeshot"]
 # (glow), xkbcommon, X11 and Wayland (winit), and the tray's AppIndicator.
 [package.metadata.packager.deb]
 section = "graphics"
+# The launcher entry, with its right-click actions (the AppImage takes it from here too).
+desktop-template = "packaging/linux/takeshot.desktop"
 depends = [
   "libc6 (>= 2.39)",
   "libgcc-s1",
