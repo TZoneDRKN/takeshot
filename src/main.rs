@@ -3,6 +3,7 @@
 //!
 //! Modes (each runs in its own window/process):
 //!   (none)                 main window, listens for the capture keys
+//!   --version | -V         say `takeshot x.y.z` and leave (`system::console`)
 //!   --capture [--full] [--delay S] [--wait] [--sample]   area capture overlay (`--wait`: 0.3 s for a window that was just minimized to leave the picture)
 //!   --capture-standby      a warm capture process the resident starts: window and GL ready off screen, it turns into the capture on request (`system::standby`)
 //!   --edit [file]          editor for a picture (a sample when no file)
@@ -168,6 +169,8 @@ struct Args {
     section: Option<home::SettingsSection>,
     /// `--quit`: ask the running resident to quit and leave, with no window of its own.
     quit: bool,
+    /// `--version` (`-V`): say the name and the version and leave, with no window of its own.
+    version: bool,
 }
 
 /// What `--page` names: a page of the main window, or the component gallery.
@@ -228,6 +231,7 @@ fn parse_from(v: &[String]) -> Args {
         select: None,
         section: None,
         quit: false,
+        version: false,
     };
     let mut full = false;
     let mut capture = false;
@@ -242,6 +246,7 @@ fn parse_from(v: &[String]) -> Args {
             "--capture-standby" => a.launch = Launch::Standby,
             "--minimized" => a.minimized = true,
             "--quit" => a.quit = true,
+            "--version" | "-V" => a.version = true,
             "--native-titlebar" => ui::chrome::init(true),
             "--captures-dir" => {
                 a.captures_dir = v.get(i + 1).cloned();
@@ -830,6 +835,11 @@ fn quit_running_resident() -> i32 {
     reply.exit_code()
 }
 
+/// What `--version` says: the name and the version, as a script or a bug report reads them.
+fn version_line() -> String {
+    format!("takeshot {}", env!("CARGO_PKG_VERSION"))
+}
+
 fn main() -> eframe::Result {
     let res = run();
     log::finish(&res);
@@ -839,7 +849,11 @@ fn main() -> eframe::Result {
 fn run() -> eframe::Result {
     ui::chrome::init(false);
     let args = parse_args();
-    // A verb, not a window: nothing to start, no log of its own.
+    // Verbs, not windows: nothing to start, no log of its own.
+    if args.version {
+        system::console::say(&version_line());
+        return Ok(());
+    }
     if args.quit {
         std::process::exit(quit_running_resident());
     }
@@ -1518,6 +1532,24 @@ mod tests {
         let picture = Launch::Edit(Some(PathBuf::from("capture.png")));
         assert_eq!(role(picture, false, true), None);
         assert_eq!(role(Launch::Capture { full: false }, false, true), None);
+    }
+
+    #[test]
+    fn version_is_a_verb_that_names_the_app_and_its_version() {
+        for flag in ["--version", "-V"] {
+            assert!(parse_from(&[flag.to_string()]).version, "{flag}");
+        }
+        assert!(!parse_from(&[]).version);
+        assert!(!parse_from(&["--quit".to_string()]).version);
+        // `name x.y.z`, which is what a script or a bug report reads (the exact line is checked
+        // against the binary in tests/version.rs).
+        let line = version_line();
+        let (name, number) = line.split_once(' ').expect("a name and a version");
+        assert_eq!(name, "takeshot");
+        assert!(
+            number.split('.').all(|n| n.parse::<u32>().is_ok()),
+            "{number}"
+        );
     }
 
     #[test]

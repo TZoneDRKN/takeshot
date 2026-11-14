@@ -6,6 +6,7 @@ pub mod appearance;
 pub mod autostart;
 pub mod borderless;
 pub mod capture;
+pub mod console;
 pub mod fonts;
 pub mod headless;
 pub mod hotkeys;
