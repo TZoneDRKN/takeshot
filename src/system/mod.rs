@@ -2,6 +2,7 @@
 //! process log, and the resident's tray, hotkeys, single instance and start with the system.
 
 pub mod actions;
+pub mod appearance;
 pub mod autostart;
 pub mod borderless;
 pub mod capture;
