@@ -542,6 +542,8 @@ impl App {
             resident,
         } = &mut self.mode
         {
+            // Events first, then the tick: what an event changes (the theme, the taskbar colour) is
+            // drawn in this same pass.
             for ev in resident.poll() {
                 shell.handle(ctx, ev, home.as_deref_mut(), &mut self.shared);
             }

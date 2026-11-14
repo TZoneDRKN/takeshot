@@ -191,8 +191,8 @@ pub fn taskbar_is_dark() -> bool {
 const PERSONALIZE: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 
 /// Calls `changed` after each write under `HKEY_CURRENT_USER\<subkey>`, from a thread of its own
-/// that lives with the process. The key is armed again before `changed` runs: a write that lands
-/// meanwhile is reported too, and what `changed` reads is never older than the write it answers.
+/// that lives with the process. The key is armed again before `changed` runs, so `changed` reads
+/// what is there after the arming and no write can fall between a wake-up and the next wait.
 #[cfg(windows)]
 fn watch_current_user_key(subkey: &str, changed: impl Fn() + Send + 'static) -> Result<(), String> {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
@@ -206,7 +206,8 @@ fn watch_current_user_key(subkey: &str, changed: impl Fn() + Send + 'static) -> 
     let key = RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey_with_flags(subkey, KEY_NOTIFY)
         .map_err(|e| e.to_string())?;
-    // SAFETY: plain calls with null attributes and name; the event is closed when the thread ends.
+    // SAFETY: plain calls with null attributes and name. The event is closed by the thread when it
+    // ends, or here when the thread cannot be started.
     let event = unsafe { CreateEventW(std::ptr::null(), 0, 0, std::ptr::null()) };
     if event.is_null() {
         return Err(std::io::Error::last_os_error().to_string());
@@ -230,23 +231,37 @@ fn watch_current_user_key(subkey: &str, changed: impl Fn() + Send + 'static) -> 
             code => Err(std::io::Error::from_raw_os_error(code as i32).to_string()),
         }
     };
-    arm(&key)?;
-    std::thread::Builder::new()
-        .name("takeshot-registry-watch".into())
-        .spawn(move || {
-            // SAFETY: `event` is the live event made above; nothing else waits on or closes it.
-            while unsafe { WaitForSingleObject(event as HANDLE, INFINITE) } == WAIT_OBJECT_0 {
-                if let Err(e) = arm(&key) {
-                    crate::system::log::line(format_args!("registry watch stopped: {e}"));
-                    break;
+    let started = arm(&key).and_then(|()| {
+        std::thread::Builder::new()
+            .name("takeshot-registry-watch".into())
+            .spawn(move || {
+                loop {
+                    // SAFETY: `event` is the live event made above; nothing else waits on or
+                    // closes it.
+                    let woke = unsafe { WaitForSingleObject(event as HANDLE, INFINITE) };
+                    if woke != WAIT_OBJECT_0 {
+                        crate::system::log::line(format_args!(
+                            "registry watch stopped: the wait returned {woke}"
+                        ));
+                        break;
+                    }
+                    if let Err(e) = arm(&key) {
+                        crate::system::log::line(format_args!("registry watch stopped: {e}"));
+                        break;
+                    }
+                    changed();
                 }
-                changed();
-            }
-            // SAFETY: as above; the thread is done with it.
-            unsafe { CloseHandle(event as HANDLE) };
-        })
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+                // SAFETY: as above; the thread is done with it.
+                unsafe { CloseHandle(event as HANDLE) };
+            })
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    });
+    if started.is_err() {
+        // SAFETY: no thread has the event: it was never started, or it could not be.
+        unsafe { CloseHandle(event as HANDLE) };
+    }
+    started
 }
 
 #[cfg(not(windows))]
