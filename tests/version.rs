@@ -37,6 +37,10 @@ fn version_prints_the_name_and_the_version_and_leaves() {
         .expect("stdout")
         .read_to_string(&mut out)
         .expect("read stdout");
+    let mut err = String::new();
+    let mut stderr = child.stderr.take().expect("stderr");
+    stderr.read_to_string(&mut err).expect("read stderr");
     assert!(status.success(), "exit {status}");
+    assert_eq!(err, "", "nothing on standard error");
     assert_eq!(out, format!("takeshot {}\n", env!("CARGO_PKG_VERSION")));
 }

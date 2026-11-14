@@ -3,6 +3,7 @@
 //!
 //! Modes (each runs in its own window/process):
 //!   (none)                 main window, listens for the capture keys
+//!   --version | -V         say `takeshot x.y.z` and leave (`system::console`)
 //!   --capture [--full] [--delay S] [--wait] [--sample]   area capture overlay (`--wait`: 0.3 s for a window that was just minimized to leave the picture)
 //!   --capture-standby      a warm capture process the resident starts: window and GL ready off screen, it turns into the capture on request (`system::standby`)
 //!   --edit [file]          editor for a picture (a sample when no file)
@@ -1540,9 +1541,9 @@ mod tests {
         }
         assert!(!parse_from(&[]).version);
         assert!(!parse_from(&["--quit".to_string()]).version);
+        // `name x.y.z`, which is what a script or a bug report reads (the exact line is checked
+        // against the binary in tests/version.rs).
         let line = version_line();
-        assert_eq!(line, format!("takeshot {}", env!("CARGO_PKG_VERSION")));
-        // `name x.y.z`, which is what a script or a bug report reads.
         let (name, number) = line.split_once(' ').expect("a name and a version");
         assert_eq!(name, "takeshot");
         assert!(

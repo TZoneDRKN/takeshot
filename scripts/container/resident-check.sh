@@ -64,13 +64,14 @@ wait_for() {
 }
 alive() { pgrep -x takeshot > /dev/null; }
 
-# `--version` is a verb: the line on standard output, no window, nothing left running.
-version=$(takeshot --version 2> /dev/null) || fail "--version did not leave with 0"
-case $version in
-  'takeshot '[0-9]*.[0-9]*.[0-9]*) ;;
-  *) fail "--version said '$version', not 'takeshot x.y.z'" ;;
-esac
+# `--version` is a verb: the line on standard output, no window, no log, nothing left running. The
+# timeout turns a `--version` that starts the app into a failure instead of a hang.
+logs="$HOME/.local/state/takeshot/logs"
+[ ! -e "$logs" ] || fail "a log folder exists before the first run"
+version=$(timeout 20 takeshot --version 2> /dev/null) || fail "--version did not leave with 0 within 20 s"
+[[ $version =~ ^takeshot\ [0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "--version said '$version', not 'takeshot x.y.z'"
 ! alive || fail "--version left a takeshot running"
+[ ! -e "$logs" ] || fail "--version wrote a log"
 
 takeshot --minimized --lang en > /tmp/takeshot.log 2>&1 &
 sleep 4
