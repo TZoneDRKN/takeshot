@@ -253,20 +253,23 @@ fn general(
                 );
             },
         );
-        divider(ui, t);
-        kit::setting_row(ui, t, tr(Msg::TrayClickLabel), None, |ui| {
-            kit::select(
-                ui,
-                t,
-                "takeui-tray-click",
-                &mut s.tray_click,
-                &[
-                    (TrayClick::OpenHome, tr(Msg::OpenHome)),
-                    (TrayClick::CaptureArea, tr(Msg::CaptureArea)),
-                ],
-                SELECT_WIDTH,
-            );
-        });
+        // AppIndicator (Linux) reports no click on the icon: the choice would do nothing there.
+        if !cfg!(target_os = "linux") {
+            divider(ui, t);
+            kit::setting_row(ui, t, tr(Msg::TrayClickLabel), None, |ui| {
+                kit::select(
+                    ui,
+                    t,
+                    "takeui-tray-click",
+                    &mut s.tray_click,
+                    &[
+                        (TrayClick::OpenHome, tr(Msg::OpenHome)),
+                        (TrayClick::CaptureArea, tr(Msg::CaptureArea)),
+                    ],
+                    SELECT_WIDTH,
+                );
+            });
+        }
         if cfg!(target_os = "macos") {
             divider(ui, t);
             switch_row(
@@ -590,6 +593,18 @@ mod tests {
             (label.y - card.center().y).abs() <= 1.0,
             "{label:?} beside {card:?}"
         );
+    }
+
+    #[test]
+    fn the_tray_click_choice_is_offered_only_where_the_icon_reports_a_click() {
+        // AppIndicator (Linux) reports no click on the icon, so the choice would do nothing there.
+        let (mut home, mut shared) = Home::for_tests(vec![]);
+        home.open(Page::Settings);
+        let (_, painted) = run(&mut home, &mut shared, (1160.0, 1600.0), true, vec![]);
+        let shown = |m: Msg| painted.iter().any(|(s, _)| every(m).contains(&s.as_str()));
+        assert!(shown(Msg::OnCloseLabel), "the row above stays");
+        assert!(shown(Msg::ShowNotice), "the row below stays");
+        assert_eq!(shown(Msg::TrayClickLabel), !cfg!(target_os = "linux"));
     }
 
     #[test]
