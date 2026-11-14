@@ -314,7 +314,7 @@ impl Shell {
     }
 
     /// The main window's viewport: a child of the host, or the root itself on Linux.
-    fn main_viewport(&self) -> ViewportId {
+    pub fn main_viewport(&self) -> ViewportId {
         if self.hosted {
             main_id()
         } else {

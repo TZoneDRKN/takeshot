@@ -548,7 +548,10 @@ impl App {
                 shell.handle(ctx, ev, home.as_deref_mut(), &mut self.shared);
             }
             shell.tick(ctx, resident, &self.shared);
-            if self.shared.settings_dirty {
+            // Not while a slider or a picker is being dragged in the main window: a save waits
+            // for the disk (see `Settings::save`), and the release saves what the drag changed.
+            let held = ctx.input_for(shell.main_viewport(), |i| i.pointer.any_down());
+            if self.shared.settings_dirty && !held {
                 self.shared.settings_dirty = false;
                 self.shared.settings.save();
             }
@@ -861,13 +864,6 @@ fn run() -> eframe::Result {
     if args.quit {
         std::process::exit(quit_running_resident());
     }
-    let settings = settings::Settings::load();
-    // The language first: window titles are set before the first frame.
-    ui::i18n::set_lang(ui::i18n::resolve(
-        args.lang.unwrap_or(settings.lang),
-        ui::i18n::system_locale().as_deref(),
-    ));
-
     // The resident is one per user: a second launch shows the running one and leaves.
     let resident_mode = matches!(args.launch, Launch::Home) && args.screenshot.is_none();
     let mut listener = None;
@@ -894,6 +890,14 @@ fn run() -> eframe::Result {
     // app's id, so Windows groups its windows with the shortcuts that carry it.
     #[cfg(windows)]
     system::app_id::set();
+
+    // After the log opens: a settings file that cannot be read says so there.
+    let settings = settings::Settings::load();
+    // The language first: window titles are set before the first frame.
+    ui::i18n::set_lang(ui::i18n::resolve(
+        args.lang.unwrap_or(settings.lang),
+        ui::i18n::system_locale().as_deref(),
+    ));
 
     let tell = tells_start_failure(&args.launch, throwaway);
 
