@@ -1582,6 +1582,12 @@ mod tests {
         }
         // The window's app id (`with_app_id`), which is what the launcher groups its windows under.
         assert!(entry.lines().any(|l| l == "StartupWMClass=takeshot"));
+        // cargo-packager fills this file in for the deb (and the AppImage) only when told to.
+        let manifest = include_str!("../Cargo.toml");
+        let deb = manifest.split("[package.metadata.packager.deb]").nth(1);
+        let deb = deb.and_then(|t| t.split("\n[").next()).unwrap_or_default();
+        let wired = "desktop-template = \"packaging/linux/takeshot.desktop\"";
+        assert!(deb.lines().any(|l| l == wired));
     }
 
     fn shot_at(x: i32, y: i32, scale: f32, w: u32, h: u32) -> capture::Shot {
