@@ -1,9 +1,11 @@
 # The Linux job of .github/workflows/build.yml, as an image: same Debian, same libraries, the
 # pinned Rust, plus the macOS target so clippy can check the macOS code (it only type-checks, no
 # linking). scripts/check.sh builds and runs it.
-# Debian 12 (glibc 2.36) on purpose: a binary needs the glibc of the machine it was linked on, so
-# this is the floor of every Linux download (Ubuntu 22.04+, Debian 12+, Fedora 36+). Its libraries
-# are the oldest the build supports (PipeWire 0.3.65; 0.3.48, Ubuntu 22.04's, is too old for libspa).
+# Debian 12 (glibc 2.36) on purpose: a binary needs at most the glibc of the machine it was linked
+# on, so this image sets how far back the Linux downloads reach (glibc 2.35: Ubuntu 22.04+, Debian
+# 12+, Fedora 36+; scripts/glibc-floor.sh checks the binary's own need against the deb's `depends`).
+# Its libraries are the oldest the build supports (PipeWire 0.3.65; 0.3.48, Ubuntu 22.04's, is too
+# old for libspa).
 FROM debian:12
 
 ENV DEBIAN_FRONTEND=noninteractive

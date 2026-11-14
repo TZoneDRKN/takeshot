@@ -13,7 +13,8 @@
 # And `floor`: the .deb installed on the oldest systems it claims (Ubuntu 22.04 and Debian 12, whose
 # glibc is the floor of the files), on X11, and the AppImage on Debian 12 (on Ubuntu 22.04 it does not
 # start: the pango it carries needs a HarfBuzz newer than that system's 2.7, which an AppImage never
-# bundles, so the README sends that system to the .deb).
+# bundles, so the README sends that system to the .deb), and the tar.gz and the AppImage on Fedora 36
+# (glibc 2.35, the oldest the README promises on the rpm side).
 #
 #   scripts/linux-smoke.sh [screens|resident|desktop|appearance|floor]   (default: all)
 set -eu
@@ -23,6 +24,7 @@ cd "$(git rev-parse --show-toplevel)"
 dir=target/packages-linux
 deb=$(cd "$dir" && ls takeshot-*-linux-x86_64.deb)
 appimage=$(cd "$dir" && ls takeshot-*-linux-x86_64.AppImage)
+tgz=$(cd "$dir" && ls takeshot-*-linux-x86_64.tar.gz)
 mkdir -p "$dir/smoke"
 mount="$(pwd -W 2> /dev/null || pwd)/$dir:/pk"
 checks="$(pwd -W 2> /dev/null || pwd)/scripts/container:/t:ro"
@@ -133,5 +135,18 @@ if want floor; then
     if dpkg -s libgtk-3-0 > /dev/null 2>&1; then echo 'GTK is installed: the check proves nothing'; exit 1; fi
     cp /pk/$appimage /tmp/takeshot.AppImage && chmod +x /tmp/takeshot.AppImage
     xvfb-run -a -s '-screen 0 1280x800x24' /tmp/takeshot.AppImage --appimage-extract-and-run --page estilo --lang en --screenshot /pk/smoke/floor-appimage-debian-12-style.png
+  "
+
+  echo "== tar.gz and AppImage on X11 in fedora:36"
+  MSYS_NO_PATHCONV=1 docker run --rm --init -v "$mount" fedora:36 bash -c "
+    set -e
+    dnf install -y -q gtk3 xorg-x11-server-Xvfb xauth mesa-dri-drivers mesa-libEGL mesa-libgbm mesa-libGL \
+      libglvnd-opengl libxkbcommon-x11 libXcursor libXi libXrandr libwayland-client libwayland-cursor \
+      libwayland-egl libappindicator-gtk3 fuse-libs > /tmp/dnf.log 2>&1 || { tail -20 /tmp/dnf.log; exit 1; }
+    mkdir -p /tmp/t && tar -xzf /pk/$tgz -C /tmp/t
+    /tmp/t/takeshot --version
+    xvfb-run -a -s '-screen 0 1280x800x24' /tmp/t/takeshot --page inicio --lang en --screenshot /pk/smoke/floor-fedora-36-tgz-home.png
+    cp /pk/$appimage /tmp/t.AppImage && chmod +x /tmp/t.AppImage
+    xvfb-run -a -s '-screen 0 1280x800x24' /tmp/t.AppImage --appimage-extract-and-run --page estilo --lang en --screenshot /pk/smoke/floor-fedora-36-appimage-style.png
   "
 fi

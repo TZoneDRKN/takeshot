@@ -34,9 +34,10 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    # Linux builds in Debian 12 (glibc 2.36, the image of scripts/ci-linux): a binary needs the glibc
-    # of the machine it was linked on, so this is the floor of the deb, the AppImage and the tar.gz;
-    # the runner's own Ubuntu 24.04 would make it 2.39. The other systems have no container.
+    # Linux builds in Debian 12 (glibc 2.36, the image of scripts/ci-linux): a binary needs at most the
+    # glibc of the machine it was linked on, so this image sets how far back the deb, the AppImage and
+    # the tar.gz reach (glibc 2.35 as measured); the runner's own Ubuntu 24.04 would make it 2.39. The
+    # other systems have no container.
     container: ${{ matrix.container }}
     strategy:
       fail-fast: false
@@ -44,9 +45,11 @@ jobs:
         include: ${{ fromJSON(inputs.targets) }}
     steps:
       # The container has none of what the runner brings: git for the checkout, a compiler, rustup.
-      # Same list as scripts/ci-linux/Dockerfile.
+      # The libraries are those of scripts/ci-linux/Dockerfile.
       - name: Linux build tools
         if: runner.os == 'Linux'
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
@@ -200,6 +203,8 @@ jobs:
               test -f "$DMG"
               ;;
             Linux)
+              # What the binary needs from glibc is what the deb's `depends` declares.
+              bash scripts/glibc-floor.sh target/release/takeshot
               cargo packager --release --formats deb,appimage
               cp target/packages/*.deb "dist/takeshot-$VERSION-linux-x86_64.deb"
               cp target/packages/*.AppImage "dist/takeshot-$VERSION-linux-x86_64.AppImage"

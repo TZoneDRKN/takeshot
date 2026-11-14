@@ -1,4 +1,4 @@
-//! Three rules of the release's supply chain that nothing in the app would notice breaking:
+//! Four rules of the release's supply chain that nothing in the app would notice breaking:
 //!
 //! - every action the workflows use is pinned by the commit of a release, with its version in a
 //!   comment, so a moved tag cannot change what runs with the release's permissions;
@@ -215,5 +215,30 @@ fn the_linux_job_and_the_linux_image_are_the_same_distribution() {
     assert_eq!(
         container, image,
         "CI and scripts/ci-linux build on different distributions"
+    );
+}
+
+/// What the Linux job caches (the Rust build and `cargo-packager`) is keyed by its container, so a
+/// `target` built on Ubuntu or a `cargo-packager` linked against a newer glibc is never restored
+/// into the Debian job.
+#[test]
+fn the_linux_job_runs_in_its_container_and_caches_by_it() {
+    let workflow = read(".github/workflows/build.yml");
+    let lines: Vec<&str> = workflow.lines().map(str::trim).collect();
+    assert!(
+        lines.contains(&"container: ${{ matrix.container }}"),
+        "build.yml: the job does not use the container of its target"
+    );
+    assert!(
+        lines.contains(&"key: ${{ matrix.container }}"),
+        "build.yml: the Rust cache is not keyed by the container"
+    );
+    let packager = lines
+        .iter()
+        .find(|l| l.starts_with("key: cargo-packager-"))
+        .expect("build.yml: the cargo-packager cache key");
+    assert!(
+        packager.contains("matrix.container"),
+        "build.yml: the cargo-packager cache is not keyed by the container: {packager}"
     );
 }
