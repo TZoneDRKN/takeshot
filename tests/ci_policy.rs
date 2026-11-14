@@ -141,3 +141,34 @@ fn the_cargo_calls_are_found_whatever_the_spacing() {
         assert!(!runs_cargo(no), "{no}");
     }
 }
+
+/// The version after `key` on the first line of `text` that starts with it, up to `end`.
+fn version_after(file: &str, key: &str, end: &[char]) -> String {
+    let line = read(file)
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with(key))
+        .unwrap_or_else(|| panic!("{file}: no line starts with `{key}`"))
+        .to_owned();
+    let rest = line[key.len()..].trim_start();
+    rest.split(|c| end.contains(&c)).next().unwrap().to_owned()
+}
+
+#[test]
+fn the_rust_toolchain_is_pinned_to_one_version_in_every_place() {
+    // A developer's `rust-toolchain.toml` follows stable (a host cannot go with an exact version).
+    let places = [
+        version_after(".github/workflows/build.yml", "RUSTUP_TOOLCHAIN:", &[' ']),
+        version_after("scripts/ci-linux/Dockerfile", "RUSTUP_TOOLCHAIN=", &[' ']),
+    ];
+    let version = &places[0];
+    let numbers: Vec<_> = version.split('.').collect();
+    assert!(
+        numbers.len() == 3 && numbers.iter().all(|n| n.parse::<u32>().is_ok()),
+        "`{version}` is not an exact version: `stable` would move under us"
+    );
+    assert!(
+        places.iter().all(|p| p == version),
+        "the pins differ: {places:?}"
+    );
+}

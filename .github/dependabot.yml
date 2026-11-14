@@ -1,0 +1,23 @@
+# Weekly pull requests for what goes stale on its own: the crates in Cargo.lock and the actions the
+# workflows pin by commit (a bump moves the commit and its version comment together). The Rust
+# toolchain is pinned by hand (see AGENTS.md).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One pull request for the patch and minor bumps; a major bump of a crate gets its own.
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"

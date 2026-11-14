@@ -24,8 +24,9 @@ on:
         default: ''
 
 env:
-  # rust-toolchain.toml pins the MSVC toolchain for local Windows builds; CI uses plain stable.
-  RUSTUP_TOOLCHAIN: stable
+  # The version rust-toolchain.toml and the Dockerfile of scripts/ci-linux pin too (a test keeps
+  # them equal); a newer Rust cannot break the lint with no change of ours.
+  RUSTUP_TOOLCHAIN: 1.99.1
   CARGO_TERM_COLOR: always
   PACKAGER_VERSION: 0.11.8
 
@@ -45,8 +46,8 @@ jobs:
       - name: Rust
         shell: bash
         run: |
-          rustup toolchain install stable --profile minimal --component clippy,rustfmt
-          if [ "${{ runner.os }}" = "macOS" ]; then rustup target add x86_64-apple-darwin aarch64-apple-darwin --toolchain stable; fi
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+          if [ "${{ runner.os }}" = "macOS" ]; then rustup target add x86_64-apple-darwin aarch64-apple-darwin --toolchain "$RUSTUP_TOOLCHAIN"; fi
 
       - name: Linux libraries
         if: runner.os == 'Linux'

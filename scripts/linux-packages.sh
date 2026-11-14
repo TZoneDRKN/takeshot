@@ -28,6 +28,7 @@ git archive --format=tar "$sha" |
       set -e
       tar -x -m -f -
       export PATH=/opt/tools/bin:\$PATH
+      rustup toolchain install \"\$RUSTUP_TOOLCHAIN\" --profile minimal --component clippy,rustfmt --no-self-update > /dev/null 2>&1 || true
       apt-get update -qq > /dev/null && apt-get install -y -qq --no-install-recommends file dpkg-dev > /dev/null
       cargo packager --version 2> /dev/null | grep -q '$packager_version' ||
         cargo install cargo-packager --version '$packager_version' --locked --root /opt/tools

@@ -1,5 +1,7 @@
 # Windows: build with the MSVC toolchain (the GNU one needs dlltool).
-# CI and other systems set RUSTUP_TOOLCHAIN=stable, which takes precedence.
+# CI and the Linux container set RUSTUP_TOOLCHAIN to an exact version (build.yml and the Dockerfile of
+# scripts/ci-linux, which tests/ci_policy.rs keeps equal), which takes precedence. rustup does not take
+# a host in an exact version's name, so here a developer follows stable and CI is the pinned gate.
 [toolchain]
 channel = "stable-x86_64-pc-windows-msvc"
 components = ["rustfmt", "clippy"]

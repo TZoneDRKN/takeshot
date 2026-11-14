@@ -1,5 +1,5 @@
-# The Linux job of .github/workflows/build.yml, as an image: same Ubuntu, same libraries, plain
-# stable Rust, plus the macOS target so clippy can check the macOS code (it only type-checks, no
+# The Linux job of .github/workflows/build.yml, as an image: same Ubuntu, same libraries, the
+# pinned Rust, plus the macOS target so clippy can check the macOS code (it only type-checks, no
 # linking). scripts/check.sh builds and runs it.
 FROM ubuntu:24.04
 
@@ -15,10 +15,10 @@ RUN apt-get update \
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    RUSTUP_TOOLCHAIN=stable \
+    RUSTUP_TOOLCHAIN=1.99.1 \
     CARGO_TERM_COLOR=never
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal \
-      --default-toolchain stable --component clippy,rustfmt \
+      --default-toolchain 1.99.1 --component clippy,rustfmt \
  && rustup target add aarch64-apple-darwin
 
 WORKDIR /src
