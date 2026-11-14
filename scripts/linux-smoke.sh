@@ -8,9 +8,10 @@
 # Then the resident's window is checked (scripts/container/resident-check.sh): it is made when
 # wanted, destroyed to hide it to the tray, and made again, on X11 and on Wayland.
 # Last, the launcher entry the deb installs is validated and its right-click actions run
-# (scripts/container/desktop-check.sh).
+# (scripts/container/desktop-check.sh), and the "System" mode follows the setting a stand-in
+# desktop portal reports, on X11 and on Wayland (scripts/container/appearance-check.sh).
 #
-#   scripts/linux-smoke.sh [screens|resident|desktop]   (default: all)
+#   scripts/linux-smoke.sh [screens|resident|desktop|appearance]   (default: all)
 set -eu
 only=${1:-all}
 want() { [ "$only" = all ] || [ "$only" = "$1" ]; }
@@ -90,5 +91,19 @@ if want desktop; then
   run "
     get /pk/$deb xvfb xauth libgl1-mesa-dri openbox wmctrl x11-utils procps dbus dbus-bin desktop-file-utils
     dbus-run-session -- bash /t/desktop-check.sh
+  "
+fi
+
+if want appearance; then
+  echo "== deb on X11: the System mode follows the desktop's light or dark setting (stand-in portal)"
+  run "
+    get /pk/$deb xvfb xauth libgl1-mesa-dri python3-gi python3-pil dbus dbus-bin
+    dbus-run-session -- bash /t/appearance-check.sh x11
+  "
+
+  echo "== deb on Wayland (sway): the same, where winit only echoes the app's own setting"
+  run "
+    get /pk/$deb sway libgl1-mesa-dri libegl1 python3-gi python3-pil dbus dbus-bin
+    dbus-run-session -- bash /t/appearance-check.sh wayland
   "
 fi
