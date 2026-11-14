@@ -1018,8 +1018,32 @@ mod tests {
         // The child viewport of the invisible host is drawn by the root's `ui`; `logic` has no
         // say, and its stale input for that viewport must not be read.
         let mut shell = Shell::new(true, true);
-        let sent = logic_close(&mut shell, OnClose::Quit, false, false);
-        assert!(sent.is_empty(), "{sent:?}");
+        let ctx = egui::Context::default();
+        let mut shared = Shared::for_tests();
+        shared.settings.on_close = OnClose::Quit;
+        // The child viewport was drawn once with the close asked, and keeps that input (it is not
+        // drawn again while hidden): `logic` of the root would read it forever.
+        let child = main_id();
+        let mut raw = egui::RawInput {
+            viewport_id: child,
+            ..Default::default()
+        };
+        raw.viewports.insert(
+            child,
+            egui::ViewportInfo {
+                events: vec![egui::ViewportEvent::Close],
+                ..Default::default()
+            },
+        );
+        ctx.run_ui(raw, |_| {}).textures_delta.clear();
+        let out = ctx.run_logic(&egui::RawInput::default(), |c| {
+            shell.read_close_request(c, || false, &shared);
+        });
+        assert!(
+            out.viewport_commands.is_empty(),
+            "{:?}",
+            out.viewport_commands
+        );
         assert!(!shell.quit_asked);
     }
 
