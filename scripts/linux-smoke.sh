@@ -10,8 +10,13 @@
 # Last, the launcher entry the deb installs is validated and its right-click actions run
 # (scripts/container/desktop-check.sh), and the "System" mode follows the setting a stand-in
 # desktop portal reports, on X11 and on Wayland (scripts/container/appearance-check.sh).
+# And `floor`: the .deb installed on the oldest systems it claims (Ubuntu 22.04 and Debian 12, whose
+# glibc is the floor of the files), on X11, and the AppImage on Debian 12 (on Ubuntu 22.04 it does not
+# start: the pango it carries needs a HarfBuzz newer than that system's 2.7, which an AppImage never
+# bundles, so the README sends that system to the .deb), and the tar.gz and the AppImage on Fedora 36
+# (glibc 2.35, the oldest the README promises on the rpm side).
 #
-#   scripts/linux-smoke.sh [screens|resident|desktop|appearance]   (default: all)
+#   scripts/linux-smoke.sh [screens|resident|desktop|appearance|floor]   (default: all)
 set -eu
 only=${1:-all}
 want() { [ "$only" = all ] || [ "$only" = "$1" ]; }
@@ -19,6 +24,7 @@ cd "$(git rev-parse --show-toplevel)"
 dir=target/packages-linux
 deb=$(cd "$dir" && ls takeshot-*-linux-x86_64.deb)
 appimage=$(cd "$dir" && ls takeshot-*-linux-x86_64.AppImage)
+tgz=$(cd "$dir" && ls takeshot-*-linux-x86_64.tar.gz)
 mkdir -p "$dir/smoke"
 mount="$(pwd -W 2> /dev/null || pwd)/$dir:/pk"
 checks="$(pwd -W 2> /dev/null || pwd)/scripts/container:/t:ro"
@@ -34,7 +40,8 @@ prelude='
   }
 '
 # --init: as PID 1, xvfb-run never hears that Xvfb is ready.
-run() { MSYS_NO_PATHCONV=1 docker run --rm --init -v "$mount" -v "$checks" ubuntu:24.04 bash -c "$prelude $1"; }
+run_on() { MSYS_NO_PATHCONV=1 docker run --rm --init -v "$mount" -v "$checks" "$1" bash -c "$prelude $2"; }
+run() { run_on ubuntu:24.04 "$1"; }
 
 if want screens; then
 echo "== deb on X11"
@@ -105,5 +112,41 @@ if want appearance; then
   run "
     get /pk/$deb sway libgl1-mesa-dri libegl1 python3-gi python3-pil dbus dbus-bin
     dbus-run-session -- bash /t/appearance-check.sh wayland
+  "
+fi
+
+if want floor; then
+  for image in ubuntu:22.04 debian:12; do
+    echo "== deb on X11 in $image: the oldest systems the files claim"
+    run_on "$image" "
+      get /pk/$deb xvfb xauth libgl1-mesa-dri
+      takeshot --version
+      xvfb-run -a -s '-screen 0 1280x800x24' takeshot --page inicio --lang en --screenshot /pk/smoke/floor-${image/:/-}-home.png
+      xvfb-run -a -s '-screen 0 1280x800x24' takeshot --page editor --lang en --theme coral --screenshot /pk/smoke/floor-${image/:/-}-editor.png
+    "
+  done
+
+  echo "== AppImage on X11 in debian:12, no GTK installed"
+  run_on debian:12 "
+    get xvfb xauth libgl1-mesa-dri libgl1 libegl1 libglx0 libopengl0 libdrm2 libgbm1 libxcb1 libx11-6 \
+      libx11-xcb1 libxcb-dri2-0 libxcb-dri3-0 libwayland-client0 libasound2 libfontconfig1 libfreetype6 \
+      libharfbuzz0b libfribidi0 libcom-err2 libexpat1 libgpg-error0 libice6 libsm6 libusb-1.0-0 libuuid1 \
+      zlib1g libgmp10 libpipewire-0.3-0 libxkbcommon0 libxkbcommon-x11-0
+    if dpkg -s libgtk-3-0 > /dev/null 2>&1; then echo 'GTK is installed: the check proves nothing'; exit 1; fi
+    cp /pk/$appimage /tmp/takeshot.AppImage && chmod +x /tmp/takeshot.AppImage
+    xvfb-run -a -s '-screen 0 1280x800x24' /tmp/takeshot.AppImage --appimage-extract-and-run --page estilo --lang en --screenshot /pk/smoke/floor-appimage-debian-12-style.png
+  "
+
+  echo "== tar.gz and AppImage on X11 in fedora:36"
+  MSYS_NO_PATHCONV=1 docker run --rm --init -v "$mount" fedora:36 bash -c "
+    set -e
+    dnf install -y -q gtk3 xorg-x11-server-Xvfb xauth mesa-dri-drivers mesa-libEGL mesa-libgbm mesa-libGL \
+      libglvnd-opengl libxkbcommon-x11 libXcursor libXi libXrandr libwayland-client libwayland-cursor \
+      libwayland-egl libappindicator-gtk3 fuse-libs > /tmp/dnf.log 2>&1 || { tail -20 /tmp/dnf.log; exit 1; }
+    mkdir -p /tmp/t && tar -xzf /pk/$tgz -C /tmp/t
+    /tmp/t/takeshot --version
+    xvfb-run -a -s '-screen 0 1280x800x24' /tmp/t/takeshot --page inicio --lang en --screenshot /pk/smoke/floor-fedora-36-tgz-home.png
+    cp /pk/$appimage /tmp/t.AppImage && chmod +x /tmp/t.AppImage
+    xvfb-run -a -s '-screen 0 1280x800x24' /tmp/t.AppImage --appimage-extract-and-run --page estilo --lang en --screenshot /pk/smoke/floor-fedora-36-appimage-style.png
   "
 fi

@@ -4,12 +4,13 @@ Two scripts check the Linux packages in Docker, from Windows, macOS or Linux:
 
 ```sh
 scripts/linux-packages.sh   # builds the .deb, .AppImage and .tar.gz in the CI image (scripts/ci-linux)
-scripts/linux-smoke.sh      # opens them in clean Ubuntu 24.04 containers and saves what they drew
+scripts/linux-smoke.sh      # opens them in clean Ubuntu 24.04 containers (and the .deb on Ubuntu 22.04 and Debian 12) and saves what they drew
 ```
 
-`linux-packages.sh` puts the packages in `target/packages-linux` and prints the shared libraries the binary needs (`dpkg-shlibdeps`), which is where the `.deb`'s `depends` in `Cargo.toml` comes from. `linux-smoke.sh` then:
+`linux-packages.sh` puts the packages in `target/packages-linux` and prints the shared libraries the binary needs (`dpkg-shlibdeps`), which is where the `.deb`'s `depends` in `Cargo.toml` comes from. The image is Debian 12 on purpose: a binary needs at most the glibc of the machine that linked it, so the image sets how far back the Linux files reach (the binary's own need is glibc 2.35, the `libc6 (>= 2.35)` in the `depends`, and `scripts/glibc-floor.sh` fails the build when the two differ). When the image moves, the `libc6` line moves with what `dpkg-shlibdeps` prints, and the `floor` step below says where the files still run. `linux-smoke.sh` then:
 
 - installs the `.deb` with `apt` (which pulls its dependencies) and runs `takeshot --screenshot` on **X11** (Xvfb) and on **Wayland** (sway with no screen, `WLR_BACKENDS=headless`);
+- (`floor`) installs the `.deb` on **Ubuntu 22.04** and **Debian 12**, the oldest systems the README promises, and draws Home and the editor on X11; and runs the AppImage on Debian 12; and runs the `.tar.gz` and the AppImage on **Fedora 36** (glibc 2.35, HarfBuzz 4.0). On Ubuntu 22.04 the AppImage does not start (`libpango-1.0.so.0: undefined symbol: hb_ot_layout_get_horizontal_baseline_tag_for_script`): the pango it carries was built against a newer HarfBuzz than that system's 2.7, and AppImages leave HarfBuzz to the system. The README sends Ubuntu 22.04 to the `.deb`;
 - runs the AppImage on X11 in a container with no GTK installed, so it must carry its own libraries;
 - checks the resident's window (`scripts/container/resident-check.sh`, `scripts/linux-smoke.sh resident` for just this part): first `takeshot --version` must print `takeshot x.y.z`, exit 0, write no log and leave nothing running; then, started in the tray, there is no window, and three times a second launch shows the window and the X (with "Minimize to tray" chosen) closes it, the resident outliving each one. On **Wayland** (sway, whose bar hosts the tray icons) it does that and closes the window with `swaymsg kill`; it then takes a capture on the sample screen and checks that the "Capture saved" notice reaches mako, the notification daemon, and opens no window. On **X11** (Xvfb with openbox) there is no tray host: the hidden start gives up after 30 s and shows the window, the X (`wmctrl -c`) only minimizes it, and a second launch brings it back. Both end with `takeshot --quit`: it must answer 0 and the resident must be gone (on Wayland the resident has no window at that point, on X11 its window is minimized), and a second `--quit` with none running answers 0 as well.
 - checks the launcher entry (`scripts/container/desktop-check.sh`, `scripts/linux-smoke.sh desktop` for just this part): the installed `takeshot.desktop` passes `desktop-file-validate`, lists its three actions, and on **X11** (Xvfb with openbox) each action's `Exec` line, run the way a launcher runs it, does what its name says: Capture area puts the capture window on screen, Capture full screen saves a picture, Quit closes a running resident; the main window's class matches the entry's `StartupWMClass`.
@@ -59,3 +60,16 @@ By hand on Kubuntu (Plasma 6.6.6, Wayland), with the `.deb` of that branch: mini
 | Session | Result |
 |---|---|
 | X11, Xvfb with openbox, the `.deb` installed | The entry passed `desktop-file-validate`. Capture area put the capture window on screen, Capture full screen saved a picture, Quit closed the resident, and the main window's class was `takeshot`, the entry's `StartupWMClass`. The AppImage carries the same entry |
+
+### The glibc floor
+
+2026-11-14, the build on Debian 12 (`scripts/linux-smoke.sh floor`; the files of that build, glibc 2.35 and `libc6 (>= 2.35)`):
+
+| System | File | Result |
+|---|---|---|
+| Ubuntu 22.04 (glibc 2.35, HarfBuzz 2.7) | `.deb`, X11 | Home and the editor drawn whole |
+| Ubuntu 22.04 | the `.deb` built on Ubuntu 24.04 (`libc6 (>= 2.39)`) | `apt` refuses: `Depends: libc6 (>= 2.39) but 2.35 is to be installed` |
+| Ubuntu 22.04 | AppImage | does not start: `libpango-1.0.so.0: undefined symbol: hb_ot_layout_get_horizontal_baseline_tag_for_script` (the README sends this system to the `.deb`) |
+| Debian 12 (glibc 2.36, HarfBuzz 6.0) | `.deb`, X11 | Home and the editor drawn whole |
+| Debian 12 | AppImage, X11, no GTK installed | Style drawn whole |
+| Fedora 36 (glibc 2.35, HarfBuzz 4.0) | `.tar.gz` and AppImage, X11 | Home and Style drawn whole |

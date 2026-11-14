@@ -18,10 +18,10 @@ mkdir -p "$out"
 packager_version=$(grep -m1 'PACKAGER_VERSION:' .github/workflows/build.yml | awk '{print $2}')
 git archive --format=tar "$sha" |
   MSYS_NO_PATHCONV=1 docker run --rm -i \
-    -v takeshot-ci-target:/src/target \
+    -v takeshot-ci-debian12-target:/src/target \
     -v takeshot-ci-registry:/usr/local/cargo/registry \
     -v takeshot-ci-rustup:/usr/local/rustup \
-    -v takeshot-ci-tools:/opt/tools \
+    -v takeshot-ci-debian12-tools:/opt/tools \
     -v "$(pwd -W 2> /dev/null || pwd)/$out:/out" \
     -e APPIMAGE_EXTRACT_AND_RUN=1 \
     "$tag" bash -c "
@@ -34,6 +34,7 @@ git archive --format=tar "$sha" |
       cargo packager --version 2> /dev/null | grep -q '$packager_version' ||
         cargo install cargo-packager --version '$packager_version' --locked --root /opt/tools
       cargo build --release --locked
+      bash scripts/glibc-floor.sh target/release/takeshot
       echo '== dpkg-shlibdeps'
       mkdir -p /tmp/shl/debian && cd /tmp/shl && printf 'Source: takeshot\n' > debian/control &&
         dpkg-shlibdeps -O /src/target/release/takeshot 2> /dev/null; cd /src

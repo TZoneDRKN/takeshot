@@ -73,7 +73,7 @@ section = "graphics"
 # The launcher entry, with its right-click actions (the AppImage takes it from here too).
 desktop-template = "packaging/linux/takeshot.desktop"
 depends = [
-  "libc6 (>= 2.39)",
+  "libc6 (>= 2.35)",
   "libgcc-s1",
   "libgtk-3-0t64 | libgtk-3-0",
   "libglib2.0-0t64 | libglib2.0-0",

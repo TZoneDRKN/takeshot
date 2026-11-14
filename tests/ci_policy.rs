@@ -1,11 +1,13 @@
-//! Three rules of the release's supply chain that nothing in the app would notice breaking:
+//! Four rules of the release's supply chain that nothing in the app would notice breaking:
 //!
 //! - every action the workflows use is pinned by the commit of a release, with its version in a
 //!   comment, so a moved tag cannot change what runs with the release's permissions;
 //! - every build, lint and test in CI and in the release scripts runs with `--locked`, so a
 //!   `Cargo.lock` out of step with `Cargo.toml` fails instead of quietly resolving newer crates;
 //! - CI and the Linux container build with one exact Rust version, named the same in every place
-//!   that runs cargo, so a new Rust cannot break the lint with no change of ours.
+//!   that runs cargo, so a new Rust cannot break the lint with no change of ours;
+//! - the Linux job of CI and the image of `scripts/ci-linux` (which builds the release's Linux files)
+//!   are the same distribution, whose glibc is the floor of every Linux download.
 
 use std::fs;
 use std::path::PathBuf;
@@ -195,5 +197,48 @@ fn every_workflow_that_runs_cargo_names_the_pinned_toolchain() {
     assert!(
         checked >= 2,
         "found only {checked} workflows that run cargo"
+    );
+}
+
+/// The glibc a Linux binary needs is the one of the machine that linked it, so the job that builds
+/// the files CI offers and the image that builds the release's must be the same distribution.
+#[test]
+fn the_linux_job_and_the_linux_image_are_the_same_distribution() {
+    let image = version_after("scripts/ci-linux/Dockerfile", "FROM");
+    let workflow = read(".github/workflows/build.yml");
+    let key = "\"container\":\"";
+    let start = workflow
+        .find(key)
+        .unwrap_or_else(|| panic!("build.yml: the Linux target has no {key}"))
+        + key.len();
+    let container = workflow[start..].split('"').next().expect("a value");
+    assert_eq!(
+        container, image,
+        "CI and scripts/ci-linux build on different distributions"
+    );
+}
+
+/// What the Linux job caches (the Rust build and `cargo-packager`) is keyed by its container, so a
+/// `target` built on Ubuntu or a `cargo-packager` linked against a newer glibc is never restored
+/// into the Debian job.
+#[test]
+fn the_linux_job_runs_in_its_container_and_caches_by_it() {
+    let workflow = read(".github/workflows/build.yml");
+    let lines: Vec<&str> = workflow.lines().map(str::trim).collect();
+    assert!(
+        lines.contains(&"container: ${{ matrix.container }}"),
+        "build.yml: the job does not use the container of its target"
+    );
+    assert!(
+        lines.contains(&"key: ${{ matrix.container }}"),
+        "build.yml: the Rust cache is not keyed by the container"
+    );
+    let packager = lines
+        .iter()
+        .find(|l| l.starts_with("key: cargo-packager-"))
+        .expect("build.yml: the cargo-packager cache key");
+    assert!(
+        packager.contains("matrix.container"),
+        "build.yml: the cargo-packager cache is not keyed by the container: {packager}"
     );
 }
