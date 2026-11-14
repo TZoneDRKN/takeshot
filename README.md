@@ -110,7 +110,7 @@ Get the latest version from [Releases](https://github.com/takeflow-oficial/takes
 | macOS 11+ (Apple Silicon and Intel) | `takeshot-<version>-macos-universal.dmg` |
 | Linux x86_64 (glibc 2.35+: Ubuntu 22.04+, Debian 12+, Fedora 36+) | `takeshot-<version>-linux-x86_64.deb`, `takeshot-<version>-linux-x86_64.AppImage`, or `takeshot-<version>-linux-x86_64.tar.gz` |
 
-On Ubuntu 22.04 take the `.deb`: the AppImage needs a newer HarfBuzz than that system has.
+The `.tar.gz` holds the program, a launcher entry, the icon and an `INSTALL.txt` with the three commands that put them in `~/.local`. On Ubuntu 22.04 take the `.deb`: the AppImage needs a newer HarfBuzz than that system has.
 
 Each release from 0.2.1 on has a `SHA256SUMS` file with the checksum of every installer. To check a download, compare its hash with the line for that file: `sha256sum <file>` (Linux), `shasum -a 256 <file>` (macOS) or `Get-FileHash <file>` (Windows PowerShell). On Linux, `sha256sum -c --ignore-missing SHA256SUMS` checks every file next to it.
 
@@ -297,7 +297,7 @@ Baixe a versão mais recente em [Releases](https://github.com/takeflow-oficial/t
 | macOS 11+ (Apple Silicon e Intel) | `takeshot-<versão>-macos-universal.dmg` |
 | Linux x86_64 (glibc 2.35+: Ubuntu 22.04+, Debian 12+, Fedora 36+) | `takeshot-<versão>-linux-x86_64.deb`, `takeshot-<versão>-linux-x86_64.AppImage`, ou `takeshot-<versão>-linux-x86_64.tar.gz` |
 
-No Ubuntu 22.04 use o `.deb`: o AppImage precisa de um HarfBuzz mais novo do que o desse sistema.
+O `.tar.gz` traz o programa, a entrada do menu, o ícone e um `INSTALL.txt` com os três comandos que os põem em `~/.local`. No Ubuntu 22.04 use o `.deb`: o AppImage precisa de um HarfBuzz mais novo do que o desse sistema.
 
 Cada release a partir da 0.2.1 tem um arquivo `SHA256SUMS` com o checksum de cada instalador. Para conferir um download, compare o hash dele com a linha daquele arquivo: `sha256sum <arquivo>` (Linux), `shasum -a 256 <arquivo>` (macOS) ou `Get-FileHash <arquivo>` (PowerShell do Windows). No Linux, `sha256sum -c --ignore-missing SHA256SUMS` confere todos os arquivos que estiverem ao lado dele.
 
