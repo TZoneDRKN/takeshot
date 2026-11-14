@@ -49,3 +49,11 @@ The AppImage, like every AppImage, expects the libraries of AppImageCommunity's 
 | Wayland, sway with swaybar as the tray host, mako | The hidden start had no window. Three times: a second launch showed the window, the X destroyed it, the resident stayed. The saved notice reached mako and opened no window |
 
 By hand on Kubuntu (Plasma 6.6.6, Wayland), with the `.deb` of that branch: minimizing to the tray leaves nothing in the taskbar, the window comes back from the tray and from a second launch, and Copy and Save show a desktop notification.
+
+### The launcher entry
+
+2026-11-14, the branch that added the launcher's right-click actions, the same containers (`scripts/linux-smoke.sh desktop`):
+
+| Session | Result |
+|---|---|
+| X11, Xvfb with openbox, the `.deb` installed | The entry passed `desktop-file-validate`. Capture area put the capture window on screen, Capture full screen saved a picture, Quit closed the resident, and the main window's class was `takeshot`, the entry's `StartupWMClass`. The AppImage carries the same entry |
