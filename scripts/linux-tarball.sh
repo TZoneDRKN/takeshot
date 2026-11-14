@@ -3,11 +3,17 @@
 # from the deb, so the three agree), the licenses and INSTALL.txt, which says where to put them.
 #
 #   scripts/linux-tarball.sh <the .deb> <the binary> <the .tar.gz to write>
+#
+# Run from the root of the repository (LICENSE, THIRD_PARTY_NOTICES.md and packaging/linux/INSTALL.txt
+# are read from there).
 set -eu
-deb=${1:?usage: linux-tarball.sh <deb> <binary> <out.tar.gz>}
-binary=${2:?usage: linux-tarball.sh <deb> <binary> <out.tar.gz>}
-out=${3:?usage: linux-tarball.sh <deb> <binary> <out.tar.gz>}
-out=$(cd "$(dirname "$out")" && pwd)/$(basename "$out")
+if [ $# -ne 3 ]; then
+  echo "usage: linux-tarball.sh <deb> <binary> <out.tar.gz> (got $# arguments)" >&2
+  exit 2
+fi
+deb=$1
+binary=$2
+out=$3
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 dpkg-deb --fsys-tarfile "$deb" |

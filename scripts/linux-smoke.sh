@@ -163,8 +163,9 @@ if want tarball; then
     export PATH=\$HOME/.local/bin:\$PATH
     takeshot --version
     desktop-file-validate ~/.local/share/applications/takeshot.desktop
-    grep -q '^Exec=takeshot' ~/.local/share/applications/takeshot.desktop
+    grep -qx 'Exec=takeshot' ~/.local/share/applications/takeshot.desktop
+    grep -qx 'Icon=takeshot' ~/.local/share/applications/takeshot.desktop
     test -s ~/.local/share/icons/hicolor/256x256/apps/takeshot.png
-    ls /tmp/t
+    test -s LICENSE && test -s THIRD_PARTY_NOTICES.md
   "
 fi

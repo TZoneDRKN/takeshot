@@ -242,3 +242,20 @@ fn the_linux_job_runs_in_its_container_and_caches_by_it() {
         "build.yml: the cargo-packager cache is not keyed by the container: {packager}"
     );
 }
+
+/// The CI and the local release make the Linux tar.gz with one script, so what it holds (the
+/// launcher entry, the icon, INSTALL.txt) cannot differ between the two routes.
+#[test]
+fn both_build_sites_make_the_linux_tarball_with_the_same_script() {
+    for file in [".github/workflows/build.yml", "scripts/linux-packages.sh"] {
+        let text = read(file);
+        assert!(
+            text.contains("scripts/linux-tarball.sh"),
+            "{file} does not call scripts/linux-tarball.sh"
+        );
+        assert!(
+            !text.contains("tar -czf"),
+            "{file} makes a tar.gz of its own"
+        );
+    }
+}
