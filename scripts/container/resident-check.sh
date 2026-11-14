@@ -64,6 +64,14 @@ wait_for() {
 }
 alive() { pgrep -x takeshot > /dev/null; }
 
+# `--version` is a verb: the line on standard output, no window, nothing left running.
+version=$(takeshot --version 2> /dev/null) || fail "--version did not leave with 0"
+case $version in
+  'takeshot '[0-9]*.[0-9]*.[0-9]*) ;;
+  *) fail "--version said '$version', not 'takeshot x.y.z'" ;;
+esac
+! alive || fail "--version left a takeshot running"
+
 takeshot --minimized --lang en > /tmp/takeshot.log 2>&1 &
 sleep 4
 alive || fail "the resident did not start"
