@@ -603,6 +603,27 @@ mod tests {
         assert_eq!(rx.recv_timeout(Duration::from_secs(2)), Ok(Page::Style));
     }
 
+    #[test]
+    fn a_client_that_beats_the_resident_to_its_socket_still_gets_through() {
+        let name = unique("early");
+        let (tx, rx) = channel();
+        let server = {
+            let name = name.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(150));
+                let Claim::Primary(listener) = claim(&name) else {
+                    panic!("the first claim must be primary");
+                };
+                listener.spawn(move |page| {
+                    let _ = tx.send(page);
+                });
+            })
+        };
+        send_show(&name, Page::Style).unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)), Ok(Page::Style));
+        server.join().unwrap();
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn a_stale_socket_file_is_reclaimed() {

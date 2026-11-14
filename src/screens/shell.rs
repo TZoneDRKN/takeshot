@@ -421,8 +421,9 @@ impl Shell {
                     waiter.stay();
                 }
             }
-            // The `--quit` waiters stay as they are: their connections close with the process, which
-            // is how they learn it is gone (let go earlier, they would report a resident still ending).
+            // The `--quit` waiters stay as they are: their connections close when this `Shell` is
+            // dropped, which is how they learn it is going (let go earlier, they would report a
+            // resident still deciding). The processes are still leaving then, so a caller polls.
             QuitOutcome::Quit => {
                 self.quit_run = None;
                 self.quitting = true;

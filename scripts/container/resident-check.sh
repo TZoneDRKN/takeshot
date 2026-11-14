@@ -110,5 +110,16 @@ else
   minimized && fail "a second launch did not bring the minimized window back"
   echo "ok: a second launch brought the window back"
 fi
+# `--quit` asks the resident to quit the way the tray's Quit does and answers 0 once it is going; with
+# none running there is nothing to quit and it answers 0 as well. The window state differs by mode: on
+# Wayland the resident has no window here (headless), on X11 its window is minimized.
+timeout 40 takeshot --quit > /tmp/quit.log 2>&1 && code=0 || code=$?
+[ "$code" = 0 ] || { cat /tmp/quit.log; fail "--quit exited with $code"; }
+for _ in $(seq 50); do alive || break; sleep 0.2; done
+if alive; then fail "--quit answered but the resident is still running"; fi
+echo "ok: --quit closed the resident"
+timeout 40 takeshot --quit > /tmp/quit.log 2>&1 && code=0 || code=$?
+[ "$code" = 0 ] || { cat /tmp/quit.log; fail "--quit with no resident exited with $code"; }
+echo "ok: --quit with none running exits 0"
 pkill -x takeshot || true
 echo "ALL OK ($mode)"
