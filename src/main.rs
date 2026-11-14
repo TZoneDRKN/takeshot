@@ -890,6 +890,10 @@ fn run() -> eframe::Result {
     if let Some(role) = log_role(&args.launch, resident_mode, throwaway) {
         log::init(role, &log::flags(std::env::args().skip(1)));
     }
+    // Before any window, and after the log (a failure is told there): every process takes the
+    // app's id, so Windows groups its windows with the shortcuts that carry it.
+    #[cfg(windows)]
+    system::app_id::set();
 
     let tell = tells_start_failure(&args.launch, throwaway);
 
@@ -1509,6 +1513,26 @@ mod tests {
         let asked = at("system::resident::on_wayland();");
         assert!(asked < at("run_resident_windows(&args"));
         assert!(asked < at("eframe::run_native("));
+    }
+
+    #[test]
+    fn run_names_the_process_before_it_makes_any_window() {
+        // Windows groups a window under the id its process had when the window was made, so the
+        // call stays after the log opens (a failure is told there) and before the first window.
+        let src = include_str!("main.rs");
+        let run = src.find("fn run() -> eframe::Result").expect("run");
+        let at = |needle: &str| {
+            run + src[run..]
+                .find(needle)
+                .unwrap_or_else(|| panic!("`{needle}` is not in run()"))
+        };
+        let named = at("system::app_id::set();");
+        assert!(
+            named > at("log::init(role"),
+            "the call is before the log opens"
+        );
+        assert!(named < at("run_resident_windows(&args"));
+        assert!(named < at("eframe::run_native("));
     }
 
     fn shared(theme: ThemeId, mode: UiMode) -> Shared {
