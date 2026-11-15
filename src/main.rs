@@ -550,8 +550,7 @@ impl App {
             shell.tick(ctx, resident, &self.shared);
             // Not while a slider or a picker is being dragged in the main window: a save waits
             // for the disk (see `Settings::save`), and the release saves what the drag changed.
-            let held = ctx.input_for(shell.main_viewport(), |i| i.pointer.any_down());
-            if self.shared.settings_dirty && !held {
+            if self.shared.settings_dirty && !shell.main_button_held(ctx) {
                 self.shared.settings_dirty = false;
                 self.shared.settings.save();
             }

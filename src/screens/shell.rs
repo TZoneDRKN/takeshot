@@ -314,12 +314,30 @@ impl Shell {
     }
 
     /// The main window's viewport: a child of the host, or the root itself on Linux.
-    pub fn main_viewport(&self) -> ViewportId {
+    fn main_viewport(&self) -> ViewportId {
         if self.hosted {
             main_id()
         } else {
             ViewportId::ROOT
         }
+    }
+
+    /// Reads the main window's input, when the window exists. Hidden to the tray, the hosted
+    /// window has no viewport, and reading one would declare a blank one: the next immediate
+    /// window (the tray menu) hands it to eframe, which opens it as an untitled "egui window" on
+    /// every frame.
+    fn main_input<R>(
+        &self,
+        ctx: &egui::Context,
+        read: impl FnOnce(&egui::InputState) -> R,
+    ) -> Option<R> {
+        (!self.hosted || self.main_open).then(|| ctx.input_for(self.main_viewport(), read))
+    }
+
+    /// Whether a mouse button is held in the main window: a slider or a picker being dragged.
+    pub fn main_button_held(&self, ctx: &egui::Context) -> bool {
+        self.main_input(ctx, |i| i.pointer.any_down())
+            .unwrap_or(false)
     }
 
     fn show(&mut self, ctx: &egui::Context, home: Option<&mut Home>, page: Page) {
@@ -366,8 +384,7 @@ impl Shell {
     /// Whether a capture takes the main window out of the picture: it is on screen (open and not
     /// already minimized to the taskbar) and Settings do not keep Takeshot in it.
     fn hides_main(&self, ctx: &egui::Context, shared: &Shared) -> bool {
-        let minimized =
-            ctx.input_for(self.main_viewport(), |i| i.viewport().minimized) == Some(true);
+        let minimized = self.main_input(ctx, |i| i.viewport().minimized).flatten() == Some(true);
         self.main_open && !minimized && shared.settings.hide_on_capture
     }
 
@@ -763,6 +780,82 @@ mod tests {
             .unwrap_or_default()
     }
 
+    /// The viewports the pass of an immediate window (the tray menu's) hands to the backend, after
+    /// `f` ran in the root pass. eframe opens a window for every one it does not know yet, so a
+    /// viewport that only a read declared becomes an untitled "egui window" on every frame.
+    fn declared_by_the_menu_pass(f: impl FnOnce(&egui::Context)) -> Vec<ViewportId> {
+        let ctx = egui::Context::default();
+        ctx.set_embed_viewports(false);
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let record = seen.clone();
+        egui::Context::set_immediate_viewport_renderer(move |ctx, mut vp| {
+            let mut input = egui::RawInput {
+                viewport_id: vp.ids.this,
+                ..Default::default()
+            };
+            input.viewports.entry(vp.ids.this).or_default();
+            let mut out = ctx.run_ui(input, |ui| (vp.viewport_ui_cb)(ui));
+            out.textures_delta.clear();
+            record
+                .lock()
+                .unwrap()
+                .extend(out.viewport_output.keys().copied());
+        });
+        let mut f = Some(f);
+        let mut full = ctx.run_ui(egui::RawInput::default(), |ui| {
+            if let Some(f) = f.take() {
+                f(ui.ctx());
+            }
+            ui.ctx().show_viewport_immediate(
+                ViewportId::from_hash_of("takeshot-tray-menu"),
+                egui::ViewportBuilder::default().with_title("Takeshot menu"),
+                |_, _| {},
+            );
+        });
+        full.textures_delta.clear();
+        seen.lock().unwrap().clone()
+    }
+
+    #[test]
+    fn a_button_held_in_the_main_window_holds_the_settings_save() {
+        // A slider dragged in the main window: the save waits for the release, hosted (Windows,
+        // macOS) and as the root (Linux).
+        for shell in [Shell::new(true, true), Shell::new(false, true)] {
+            let ctx = egui::Context::default();
+            let id = shell.main_viewport();
+            let mut raw = egui::RawInput {
+                viewport_id: id,
+                ..Default::default()
+            };
+            raw.viewports.entry(id).or_default();
+            raw.events.push(egui::Event::PointerButton {
+                pos: egui::pos2(10.0, 10.0),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            });
+            ctx.run_ui(raw, |_| {}).textures_delta.clear();
+            assert!(shell.main_button_held(&ctx), "{id:?}");
+        }
+    }
+
+    #[test]
+    fn reading_the_closed_main_window_opens_no_window_with_the_tray_menu() {
+        // The settings wait for a released button and a capture asks whether the main window is
+        // on screen: with it hidden to the tray, neither may declare it (the windows in cascade
+        // that a right click on the tray icon opened in 0.3.0).
+        let shell = Shell::new(true, false);
+        let shared = Shared::for_tests();
+        let declared = declared_by_the_menu_pass(|ctx| {
+            assert!(!shell.main_button_held(ctx));
+            assert!(!shell.hides_main(ctx, &shared));
+        });
+        assert!(
+            !declared.contains(&shell.main_viewport()),
+            "the hidden main window was handed to the backend: {declared:?}"
+        );
+    }
+
     /// A `--quit` waiting on the shell: the shell and the receiver its sender answers on.
     fn waiting_quit(shell: &mut Shell) -> std::sync::mpsc::Receiver<()> {
         let mut shared = Shared::for_tests();
@@ -886,27 +979,29 @@ mod tests {
 
     #[test]
     fn a_capture_does_not_wait_for_a_window_already_minimized_to_the_taskbar() {
-        let shell = Shell::new(true, true);
         let shared = Shared::for_tests();
-        let ctx = egui::Context::default();
-        // One pass of the main window's own viewport, which reports it minimized.
-        let id = main_id();
-        let mut raw = egui::RawInput {
-            viewport_id: id,
-            ..Default::default()
-        };
-        raw.viewports.insert(
-            id,
-            egui::ViewportInfo {
-                minimized: Some(true),
+        // Hosted (Windows, macOS) and as the root (Linux).
+        for shell in [Shell::new(true, true), Shell::new(false, true)] {
+            let ctx = egui::Context::default();
+            // One pass of the main window's own viewport, which reports it minimized.
+            let id = shell.main_viewport();
+            let mut raw = egui::RawInput {
+                viewport_id: id,
                 ..Default::default()
-            },
-        );
-        ctx.run_ui(raw, |_| {}).textures_delta.clear();
-        assert!(
-            !shell.hides_main(&ctx, &shared),
-            "it is already out of the picture"
-        );
+            };
+            raw.viewports.insert(
+                id,
+                egui::ViewportInfo {
+                    minimized: Some(true),
+                    ..Default::default()
+                },
+            );
+            ctx.run_ui(raw, |_| {}).textures_delta.clear();
+            assert!(
+                !shell.hides_main(&ctx, &shared),
+                "{id:?} is already out of the picture"
+            );
+        }
     }
 
     /// What `read_close_request` sends in one logic-only pass of the root (a minimized window is
