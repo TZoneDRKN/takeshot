@@ -322,6 +322,24 @@ impl Shell {
         }
     }
 
+    /// Reads the main window's input, when the window exists. Hidden to the tray, the hosted
+    /// window has no viewport, and reading one would declare a blank one: the next immediate
+    /// window (the tray menu) hands it to eframe, which opens it as an untitled "egui window" on
+    /// every frame.
+    fn main_input<R>(
+        &self,
+        ctx: &egui::Context,
+        read: impl FnOnce(&egui::InputState) -> R,
+    ) -> Option<R> {
+        (!self.hosted || self.main_open).then(|| ctx.input_for(self.main_viewport(), read))
+    }
+
+    /// Whether a mouse button is held in the main window: a slider or a picker being dragged.
+    pub fn main_button_held(&self, ctx: &egui::Context) -> bool {
+        self.main_input(ctx, |i| i.pointer.any_down())
+            .unwrap_or(false)
+    }
+
     fn show(&mut self, ctx: &egui::Context, home: Option<&mut Home>, page: Page) {
         self.show_in(ctx, home, page, on_wayland());
     }
@@ -366,8 +384,7 @@ impl Shell {
     /// Whether a capture takes the main window out of the picture: it is on screen (open and not
     /// already minimized to the taskbar) and Settings do not keep Takeshot in it.
     fn hides_main(&self, ctx: &egui::Context, shared: &Shared) -> bool {
-        let minimized =
-            ctx.input_for(self.main_viewport(), |i| i.viewport().minimized) == Some(true);
+        let minimized = self.main_input(ctx, |i| i.viewport().minimized).flatten() == Some(true);
         self.main_open && !minimized && shared.settings.hide_on_capture
     }
 
@@ -761,6 +778,59 @@ mod tests {
             .remove(&ViewportId::ROOT)
             .map(|v| v.commands)
             .unwrap_or_default()
+    }
+
+    /// The viewports the pass of an immediate window (the tray menu's) hands to the backend, after
+    /// `f` ran in the root pass. eframe opens a window for every one it does not know yet, so a
+    /// viewport that only a read declared becomes an untitled "egui window" on every frame.
+    fn declared_by_the_menu_pass(f: impl FnOnce(&egui::Context)) -> Vec<ViewportId> {
+        let ctx = egui::Context::default();
+        ctx.set_embed_viewports(false);
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let record = seen.clone();
+        egui::Context::set_immediate_viewport_renderer(move |ctx, mut vp| {
+            let mut input = egui::RawInput {
+                viewport_id: vp.ids.this,
+                ..Default::default()
+            };
+            input.viewports.entry(vp.ids.this).or_default();
+            let mut out = ctx.run_ui(input, |ui| (vp.viewport_ui_cb)(ui));
+            out.textures_delta.clear();
+            record
+                .lock()
+                .unwrap()
+                .extend(out.viewport_output.keys().copied());
+        });
+        let mut f = Some(f);
+        let mut full = ctx.run_ui(egui::RawInput::default(), |ui| {
+            if let Some(f) = f.take() {
+                f(ui.ctx());
+            }
+            ui.ctx().show_viewport_immediate(
+                ViewportId::from_hash_of("takeshot-tray-menu"),
+                egui::ViewportBuilder::default().with_title("Takeshot menu"),
+                |_, _| {},
+            );
+        });
+        full.textures_delta.clear();
+        seen.lock().unwrap().clone()
+    }
+
+    #[test]
+    fn reading_the_closed_main_window_opens_no_window_with_the_tray_menu() {
+        // The settings wait for a released button and a capture asks whether the main window is
+        // on screen: with it hidden to the tray, neither may declare it (the windows in cascade
+        // that a right click on the tray icon opened in 0.3.0).
+        let shell = Shell::new(true, false);
+        let shared = Shared::for_tests();
+        let declared = declared_by_the_menu_pass(|ctx| {
+            assert!(!shell.main_button_held(ctx));
+            assert!(!shell.hides_main(ctx, &shared));
+        });
+        assert!(
+            !declared.contains(&shell.main_viewport()),
+            "the hidden main window was handed to the backend: {declared:?}"
+        );
     }
 
     /// A `--quit` waiting on the shell: the shell and the receiver its sender answers on.
